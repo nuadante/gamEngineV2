@@ -1,0 +1,15 @@
+[requires]
+imgui/1.92.2b
+glfw/3.4
+glad/0.1.36
+
+[generators]
+CMakeDeps
+CMakeToolchain
+
+[options]
+*:shared=False
+
+[imports]
+bin, *.dll -> ./bin @ keep_path=False
+lib, *.dylib* -> ./bin @ keep_path=False
