@@ -206,6 +206,34 @@ namespace engine
                 ImGui::Separator();
                 ImGui::Checkbox("Wireframe", &m_wireframe);
                 ImGui::Checkbox("VSync", &m_vsync);
+                ImGui::Separator();
+                ImGui::Text("Shader Reloader");
+                ImGui::InputText("VS Path", m_vsPath, sizeof(m_vsPath));
+                ImGui::InputText("FS Path", m_fsPath, sizeof(m_fsPath));
+                if (ImGui::Button("Reload Shader") && m_vsPath[0] != '\0' && m_fsPath[0] != '\0')
+                {
+                    auto loadFile = [](const char* path) -> std::string {
+                        FILE* f = nullptr;
+                        fopen_s(&f, path, "rb");
+                        if (!f) return {};
+                        fseek(f, 0, SEEK_END);
+                        long sz = ftell(f);
+                        fseek(f, 0, SEEK_SET);
+                        std::string s; s.resize(sz);
+                        fread(s.data(), 1, sz, f);
+                        fclose(f);
+                        return s;
+                    };
+                    std::string vs = loadFile(m_vsPath);
+                    std::string fs = loadFile(m_fsPath);
+                    if (!vs.empty() && !fs.empty())
+                    {
+                        if (!m_shader->compileFromSource(vs, fs))
+                        {
+                            std::cerr << "[Shader] reload failed" << std::endl;
+                        }
+                    }
+                }
 
                 // Hierarchy
                 if (ImGui::Begin("Hierarchy"))

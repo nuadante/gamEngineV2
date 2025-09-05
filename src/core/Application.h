@@ -57,6 +57,9 @@ namespace engine
         char m_texPath[260] = "";
         bool m_wireframe = false;
         bool m_vsync = true;
+        // Shader reloader
+        char m_vsPath[260] = "";
+        char m_fsPath[260] = "";
     };
 }
 

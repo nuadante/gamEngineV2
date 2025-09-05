@@ -37,25 +37,31 @@ namespace engine
         unsigned int fs = compileStage(GL_FRAGMENT_SHADER, fragmentSrc);
         if (!fs) { glDeleteShader(vs); return false; }
 
-        m_program = glCreateProgram();
-        glAttachShader(m_program, vs);
-        glAttachShader(m_program, fs);
-        glLinkProgram(m_program);
+        unsigned int newProgram = glCreateProgram();
+        glAttachShader(newProgram, vs);
+        glAttachShader(newProgram, fs);
+        glLinkProgram(newProgram);
 
         glDeleteShader(vs);
         glDeleteShader(fs);
 
         int success;
-        glGetProgramiv(m_program, GL_LINK_STATUS, &success);
+        glGetProgramiv(newProgram, GL_LINK_STATUS, &success);
         if (!success)
         {
             char infoLog[1024];
-            glGetProgramInfoLog(m_program, 1024, nullptr, infoLog);
+            glGetProgramInfoLog(newProgram, 1024, nullptr, infoLog);
             std::cerr << "Program link error: " << infoLog << std::endl;
-            glDeleteProgram(m_program);
-            m_program = 0;
+            glDeleteProgram(newProgram);
             return false;
         }
+
+        // Swap in new program, delete old one
+        if (m_program)
+        {
+            glDeleteProgram(m_program);
+        }
+        m_program = newProgram;
         return true;
     }
 
