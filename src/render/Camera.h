@@ -20,6 +20,9 @@ namespace engine
         void setPosition(const glm::vec3& p) { m_position = p; recalcViewFromAngles(); }
         void addYawPitch(float yawDelta, float pitchDelta);
         void moveLocal(const glm::vec3& delta);
+        void setYawPitch(float yawDeg, float pitchDeg) { m_yaw = yawDeg; m_pitch = pitchDeg; recalcViewFromAngles(); }
+        float yaw() const { return m_yaw; }
+        float pitch() const { return m_pitch; }
 
     private:
         void recalcViewFromAngles();

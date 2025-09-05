@@ -19,6 +19,7 @@ namespace engine
         bool isMouseButtonPressed(int button) const;
         void getCursorPosition(double& x, double& y) const;
         void getCursorDelta(double& dx, double& dy) const;
+        void getScrollDelta(double& sx, double& sy) const;
         void beginFrame();
 
     private:
@@ -41,6 +42,8 @@ namespace engine
         double m_cursorDeltaX = 0.0;
         double m_cursorDeltaY = 0.0;
         bool m_hasLastCursor = false;
+        double m_scrollDeltaX = 0.0;
+        double m_scrollDeltaY = 0.0;
 
         static InputManager* s_instance;
     };

@@ -16,6 +16,7 @@
 #include "render/Texture2D.h"
 #include "render/ShadowMap.h"
 #include "render/Skybox.h"
+#include "input/InputMap.h"
 #include "scene/Scene.h"
 #include "scene/Transform.h"
 #include "core/ResourceManager.h"
@@ -80,6 +81,11 @@ namespace engine
 
         // Resource manager
         m_resources = std::make_unique<ResourceManager>();
+        // Input map
+        m_inputMap = std::make_unique<InputMap>();
+        m_inputMap->bindAxis("MoveForward", { GLFW_KEY_W, GLFW_KEY_S, 1.0f });
+        m_inputMap->bindAxis("MoveRight",   { GLFW_KEY_D, GLFW_KEY_A, 1.0f });
+        m_inputMap->bindAxis("MoveUp",      { GLFW_KEY_E, GLFW_KEY_Q, 1.0f });
 
         // Create shader (Phong + texture toggle)
         const char* vs = R"GLSL(
@@ -272,6 +278,25 @@ namespace engine
                 ImGui::Text("Skybox");
                 ImGui::ColorEdit3("Top", m_skyTop);
                 ImGui::ColorEdit3("Bottom", m_skyBottom);
+                static bool useCube = false;
+                ImGui::Checkbox("Use Cubemap", &useCube);
+                if (ImGui::Button("Load Cubemap"))
+                {
+                    // Expect filenames entered previously via tex path fields or hardcode for demo
+                    // Here we demonstrate using 6 files next to exe; user can change paths in code later
+                    std::vector<std::string> faces = {
+                        "right.jpg","left.jpg","top.jpg","bottom.jpg","front.jpg","back.jpg"
+                    };
+                    if (m_skybox)
+                    {
+                        if (m_skybox->loadCubemap(faces))
+                            m_skybox->setUseCubemap(true);
+                    }
+                }
+                if (m_skybox) m_skybox->setUseCubemap(useCube);
+                ImGui::Separator();
+                ImGui::Text("Camera");
+                ImGui::Checkbox("Orbit Mode (RMB drag + scroll)", &m_orbitMode);
                 ImGui::Text("Shader Reloader");
                 ImGui::InputText("VS Path", m_vsPath, sizeof(m_vsPath));
                 ImGui::InputText("FS Path", m_fsPath, sizeof(m_fsPath));
@@ -397,20 +422,48 @@ namespace engine
             // Camera controls
             float dt = m_time->tick();
             double mdx, mdy; m_input->getCursorDelta(mdx, mdy);
+            double sdx, sdy; m_input->getScrollDelta(sdx, sdy);
             const float mouseSensitivity = 0.1f;
-            if (m_input->isMouseButtonPressed(GLFW_MOUSE_BUTTON_RIGHT))
+            if (m_orbitMode)
             {
-                m_camera->addYawPitch((float)(mdx * mouseSensitivity), (float)(-mdy * mouseSensitivity));
+                static float orbitDistance = 5.0f;
+                if (m_input->isMouseButtonPressed(GLFW_MOUSE_BUTTON_RIGHT))
+                {
+                    float yawDelta = (float)(mdx * mouseSensitivity);
+                    float pitchDelta = (float)(-mdy * mouseSensitivity);
+                    m_camera->addYawPitch(yawDelta, pitchDelta);
+                }
+                orbitDistance = std::max(0.5f, orbitDistance - (float)sdy * 0.5f);
+                // compute orbit position from yaw/pitch
+                float yawRad = glm::radians(m_camera->yaw());
+                float pitchRad = glm::radians(m_camera->pitch());
+                glm::vec3 center(0.0f);
+                glm::vec3 eye;
+                eye.x = center.x + orbitDistance * cosf(yawRad) * cosf(pitchRad);
+                eye.y = center.y + orbitDistance * sinf(pitchRad);
+                eye.z = center.z + orbitDistance * sinf(yawRad) * cosf(pitchRad);
+                m_camera->setView(eye, center, {0,1,0});
             }
-            glm::vec3 move(0.0f);
-            const float speed = 3.0f;
-            if (m_input->isKeyPressed(GLFW_KEY_W)) move.z += speed * dt;
-            if (m_input->isKeyPressed(GLFW_KEY_S)) move.z -= speed * dt;
-            if (m_input->isKeyPressed(GLFW_KEY_A)) move.x -= speed * dt;
-            if (m_input->isKeyPressed(GLFW_KEY_D)) move.x += speed * dt;
-            if (m_input->isKeyPressed(GLFW_KEY_E)) move.y += speed * dt;
-            if (m_input->isKeyPressed(GLFW_KEY_Q)) move.y -= speed * dt;
-            if (move.x != 0 || move.y != 0 || move.z != 0) m_camera->moveLocal(move);
+            else
+            {
+                if (m_input->isMouseButtonPressed(GLFW_MOUSE_BUTTON_RIGHT))
+                {
+                    m_camera->addYawPitch((float)(mdx * mouseSensitivity), (float)(-mdy * mouseSensitivity));
+                }
+                glm::vec3 move(0.0f);
+                const float speed = 3.0f;
+                auto axis = [&](const char* name) {
+                    AxisBinding a = m_inputMap->axis(name);
+                    float v = 0.0f;
+                    if (m_input->isKeyPressed(a.positiveKey)) v += 1.0f;
+                    if (m_input->isKeyPressed(a.negativeKey)) v -= 1.0f;
+                    return v * a.scale;
+                };
+                move.z += axis("MoveForward") * dt;
+                move.x += axis("MoveRight") * dt;
+                move.y += axis("MoveUp") * dt;
+                if (move.x != 0 || move.y != 0 || move.z != 0) m_camera->moveLocal(move);
+            }
 
             // Update cube rotation
             static float angle = 0.0f;

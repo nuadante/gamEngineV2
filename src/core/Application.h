@@ -18,6 +18,7 @@ namespace engine
     class ResourceManager;
     class ShadowMap;
     class Skybox;
+    class InputMap;
 
     class Application
     {
@@ -49,6 +50,7 @@ namespace engine
         std::unique_ptr<ShadowMap> m_shadowMap;
         std::unique_ptr<Shader> m_depthShader;
         std::unique_ptr<Skybox> m_skybox;
+        std::unique_ptr<InputMap> m_inputMap;
         ImVec4 m_clearColor = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
         bool m_showDemo = true;
         bool m_showAnother = false;
@@ -74,6 +76,7 @@ namespace engine
         // Sky
         float m_skyTop[3] = {0.2f, 0.4f, 0.8f};
         float m_skyBottom[3] = {0.9f, 0.9f, 1.0f};
+        bool m_orbitMode = false;
     };
 }
 

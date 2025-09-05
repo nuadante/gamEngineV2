@@ -33,6 +33,7 @@ namespace engine
         m_mouseButtons.clear();
         m_hasLastCursor = false;
         m_cursorDeltaX = m_cursorDeltaY = 0.0;
+        m_scrollDeltaX = m_scrollDeltaY = 0.0;
     }
 
     bool InputManager::isKeyPressed(int key) const
@@ -63,6 +64,8 @@ namespace engine
     {
         m_cursorDeltaX = 0.0;
         m_cursorDeltaY = 0.0;
+        m_scrollDeltaX = 0.0;
+        m_scrollDeltaY = 0.0;
     }
 
     InputManager* InputManager::from(GLFWwindow* window)
@@ -118,7 +121,12 @@ namespace engine
 
     void InputManager::scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
     {
-        (void)xoffset; (void)yoffset;
+        InputManager* self = from(window);
+        if (self)
+        {
+            self->m_scrollDeltaX += xoffset;
+            self->m_scrollDeltaY += yoffset;
+        }
         ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
     }
 
@@ -126,6 +134,12 @@ namespace engine
     {
         (void)c;
         ImGui_ImplGlfw_CharCallback(window, c);
+    }
+
+    void InputManager::getScrollDelta(double& sx, double& sy) const
+    {
+        sx = m_scrollDeltaX;
+        sy = m_scrollDeltaY;
     }
 }
 
