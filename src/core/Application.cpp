@@ -14,6 +14,9 @@
 #include "render/Renderer.h"
 #include "render/Camera.h"
 #include "render/Texture2D.h"
+#include "scene/Scene.h"
+#include "scene/Transform.h"
+#include "core/ResourceManager.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include "core/Time.h"
@@ -73,8 +76,10 @@ namespace engine
         int fbw, fbh; glfwGetFramebufferSize(m_window->getNativeHandle(), &fbw, &fbh);
         Renderer::initialize();
 
+        // Resource manager
+        m_resources = std::make_unique<ResourceManager>();
+
         // Create shader (Phong + texture toggle)
-        m_shader = std::make_unique<Shader>();
         const char* vs = R"GLSL(
             #version 330 core
             layout (location = 0) in vec3 aPos;
@@ -121,14 +126,12 @@ namespace engine
                 FragColor = vec4(color, 1.0);
             }
         )GLSL";
-        if (!m_shader->compileFromSource(vs, fs))
-        {
-            std::cerr << "[App] Shader compile failed" << std::endl;
+        m_shader = std::unique_ptr<Shader>(m_resources->getShaderFromSource("phong_textured", vs, fs));
+        if (!m_shader)
             return false;
-        }
 
         // Cube mesh
-        m_cube = std::make_unique<Mesh>(Mesh::createCube());
+        m_cube = std::unique_ptr<Mesh>(m_resources->getCube("unit_cube"));
 
         // Camera
         m_camera = std::make_unique<Camera>();
@@ -141,8 +144,18 @@ namespace engine
         m_time->reset();
 
         // Texture (checkerboard)
-        m_texture = std::make_unique<Texture2D>();
-        m_texture->createCheckerboard(256, 256, 32);
+        m_texture = std::unique_ptr<Texture2D>(m_resources->getCheckerboard("checker", 256, 256, 32));
+
+        // Scene setup
+        m_scene = std::make_unique<Scene>();
+        // Create multiple entities
+        int e0 = m_scene->addEntity("Cube 0", m_cube.get(), m_shader.get(), m_texture.get());
+        int e1 = m_scene->addEntity("Cube 1", m_cube.get(), m_shader.get(), m_texture.get());
+        int e2 = m_scene->addEntity("Cube 2", m_cube.get(), m_shader.get(), m_texture.get());
+        // offset positions
+        m_scene->entities()[e0].transform.position = { -1.2f, 0.0f, 0.0f };
+        m_scene->entities()[e1].transform.position = {  0.0f, 0.0f, 0.0f };
+        m_scene->entities()[e2].transform.position = {  1.2f, 0.0f, 0.0f };
 
         return true;
     }
@@ -190,6 +203,55 @@ namespace engine
                         m_texture->loadFromFile(m_texPath, true);
                     }
                 }
+
+                // Hierarchy
+                if (ImGui::Begin("Hierarchy"))
+                {
+                    if (ImGui::Button("Add Cube"))
+                    {
+                        int idx = (int)m_scene->entities().size();
+                        int e = m_scene->addEntity(std::string("Cube ") + std::to_string(idx), m_cube.get(), m_shader.get(), m_texture.get());
+                        m_scene->entities()[e].transform.position = { (float)(idx % 5) - 2.0f, 0.0f, (float)(idx / 5) * 1.5f };
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Delete Selected"))
+                    {
+                        int sel = m_scene->selectedIndex();
+                        if (sel >= 0) m_scene->removeEntity(sel);
+                    }
+                    auto& es = m_scene->entities();
+                    for (int i = 0; i < (int)es.size(); ++i)
+                    {
+                        bool selected = (m_scene->selectedIndex() == i);
+                        if (ImGui::Selectable(es[i].name.c_str(), selected))
+                        {
+                            m_scene->setSelectedIndex(i);
+                        }
+                    }
+                }
+                ImGui::End();
+
+                // Inspector
+                if (ImGui::Begin("Inspector"))
+                {
+                    int sel = m_scene->selectedIndex();
+                    if (sel >= 0)
+                    {
+                        auto& ent = m_scene->entities()[sel];
+                        char nameBuf[128];
+                        memset(nameBuf, 0, sizeof(nameBuf));
+                        strncpy_s(nameBuf, ent.name.c_str(), sizeof(nameBuf) - 1);
+                        if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf)))
+                        {
+                            ent.name = nameBuf;
+                        }
+                        auto& t = ent.transform;
+                        ImGui::DragFloat3("Position", &t.position.x, 0.01f);
+                        ImGui::DragFloat3("Rotation (rad)", &t.rotationEuler.x, 0.01f);
+                        ImGui::DragFloat3("Scale", &t.scale.x, 0.01f, 0.01f, 100.0f);
+                    }
+                }
+                ImGui::End();
                 ImGui::End();
             }
 
@@ -225,37 +287,44 @@ namespace engine
             if (m_input->isKeyPressed(GLFW_KEY_Q)) move.y -= speed * dt;
             if (move.x != 0 || move.y != 0 || move.z != 0) m_camera->moveLocal(move);
 
-            // Draw cube with Phong lighting
+            // Update cube rotation
             static float angle = 0.0f;
             angle += dt;
-            glm::mat4 model(1.0f);
-            model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
-            glm::mat4 mvp = m_camera->projection() * m_camera->view() * model;
-            glm::mat3 normalMat = glm::mat3(glm::transpose(glm::inverse(model)));
+            // animate each entity slightly differently
+            for (size_t i = 0; i < m_scene->entities().size(); ++i)
+            {
+                m_scene->entities()[i].transform.rotationEuler.y = angle * (1.0f + 0.2f * (float)i);
+            }
 
-            m_shader->bind();
-            m_shader->setMat4("u_MVP", &mvp[0][0]);
-            m_shader->setMat4("u_Model", &model[0][0]);
-            m_shader->setMat3("u_NormalMatrix", &normalMat[0][0]);
-            m_shader->setVec3("u_CameraPos", m_camera->position().x, m_camera->position().y, m_camera->position().z);
-            m_shader->setVec3("u_LightPos", m_lightPos[0], m_lightPos[1], m_lightPos[2]);
-            m_shader->setVec3("u_LightColor", m_lightColor[0], m_lightColor[1], m_lightColor[2]);
-            m_shader->setVec3("u_Albedo", m_albedo[0], m_albedo[1], m_albedo[2]);
-            m_shader->setFloat("u_Shininess", m_shininess);
-            // texture bindings
-            if (m_useTexture)
+            // Render scene (single MeshRenderer for now)
+            for (const auto& e : m_scene->getEntities())
             {
-                m_shader->setInt("u_UseTexture", 1);
-                m_shader->setInt("u_AlbedoTex", 0);
-                m_texture->bind(0);
-                // sampler assumed at location 0 by default
+                glm::mat4 model = e.transform.modelMatrix();
+                glm::mat4 mvp = m_camera->projection() * m_camera->view() * model;
+                glm::mat3 normalMat = glm::mat3(glm::transpose(glm::inverse(model)));
+
+                e.shader->bind();
+                e.shader->setMat4("u_MVP", &mvp[0][0]);
+                e.shader->setMat4("u_Model", &model[0][0]);
+                e.shader->setMat3("u_NormalMatrix", &normalMat[0][0]);
+                e.shader->setVec3("u_CameraPos", m_camera->position().x, m_camera->position().y, m_camera->position().z);
+                e.shader->setVec3("u_LightPos", m_lightPos[0], m_lightPos[1], m_lightPos[2]);
+                e.shader->setVec3("u_LightColor", m_lightColor[0], m_lightColor[1], m_lightColor[2]);
+                e.shader->setVec3("u_Albedo", m_albedo[0], m_albedo[1], m_albedo[2]);
+                e.shader->setFloat("u_Shininess", m_shininess);
+                if (m_useTexture && e.albedoTex)
+                {
+                    e.shader->setInt("u_UseTexture", 1);
+                    e.shader->setInt("u_AlbedoTex", 0);
+                    e.albedoTex->bind(0);
+                }
+                else
+                {
+                    e.shader->setInt("u_UseTexture", 0);
+                }
+                e.mesh->draw();
+                e.shader->unbind();
             }
-            else
-            {
-                m_shader->setInt("u_UseTexture", 0);
-            }
-            m_cube->draw();
-            m_shader->unbind();
 
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 

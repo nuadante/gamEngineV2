@@ -13,6 +13,9 @@ namespace engine
     class Camera;
     class Time;
     class Texture2D;
+    class Scene;
+    class Transform;
+    class ResourceManager;
 
     class Application
     {
@@ -38,6 +41,9 @@ namespace engine
         std::unique_ptr<Camera> m_camera;
         std::unique_ptr<Time> m_time;
         std::unique_ptr<Texture2D> m_texture;
+        std::unique_ptr<Scene> m_scene;
+        std::unique_ptr<Transform> m_cubeTransform;
+        std::unique_ptr<ResourceManager> m_resources;
         ImVec4 m_clearColor = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
         bool m_showDemo = true;
         bool m_showAnother = false;
