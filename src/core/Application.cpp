@@ -16,6 +16,7 @@
 #include "render/Texture2D.h"
 #include "render/ShadowMap.h"
 #include "render/PointShadowMap.h"
+#include "render/PostProcess.h"
 #include "render/Skybox.h"
 #include "input/InputMap.h"
 #include "scene/SceneSerializer.h"
@@ -235,6 +236,8 @@ namespace engine
         // Renderer bootstrap
         int fbw, fbh; glfwGetFramebufferSize(m_window->getNativeHandle(), &fbw, &fbh);
         Renderer::initialize();
+        m_post = std::make_unique<PostProcess>();
+        m_post->create(fbw, fbh);
 
         // Resource manager
         m_resources = std::make_unique<ResourceManager>();
@@ -508,6 +511,11 @@ namespace engine
                 ImGui::Separator();
                 ImGui::Checkbox("Wireframe", &m_wireframe);
                 ImGui::Checkbox("VSync", &m_vsync);
+                ImGui::Separator();
+                ImGui::Text("Post-process");
+                ImGui::SliderFloat("Exposure", &m_exposure, 0.1f, 5.0f);
+                ImGui::SliderFloat("Gamma", &m_gamma, 1.0f, 2.6f);
+                ImGui::Checkbox("FXAA", &m_fxaa);
                 ImGui::Checkbox("Draw Colliders", &m_drawColliders);
                 ImGui::Checkbox("Enable Picking (LMB)", &m_enablePicking);
                 ImGui::Checkbox("Push On Pick", &m_pushOnPick);
@@ -766,7 +774,11 @@ namespace engine
             glfwGetFramebufferSize(m_window->getNativeHandle(), &display_w, &display_h);
             Renderer::setWireframe(m_wireframe);
             glfwSwapInterval(m_vsync ? 1 : 0);
-            Renderer::beginFrame(display_w, display_h, m_clearColor.x * m_clearColor.w, m_clearColor.y * m_clearColor.w, m_clearColor.z * m_clearColor.w, m_clearColor.w);
+            // Bind HDR FBO for scene rendering
+            if (m_post)
+                m_post->begin(display_w, display_h, m_clearColor.x * m_clearColor.w, m_clearColor.y * m_clearColor.w, m_clearColor.z * m_clearColor.w, m_clearColor.w);
+            else
+                Renderer::beginFrame(display_w, display_h, m_clearColor.x * m_clearColor.w, m_clearColor.y * m_clearColor.w, m_clearColor.z * m_clearColor.w, m_clearColor.w);
 
             // Camera controls
             float dt = m_time->tick();
@@ -923,6 +935,10 @@ namespace engine
                 m_shadowMap->end(display_w, display_h);
             }
 
+            // Re-bind HDR FBO after shadow passes (they restore default FBO)
+            if (m_post)
+                m_post->bind(display_w, display_h);
+
             // Render scene
             for (const auto& e : m_scene->getEntities())
             {
@@ -1052,6 +1068,9 @@ namespace engine
 
             // Finalize ImGui and render draw data
             ImGui::Render();
+            // Post-process to screen, then draw ImGui on top
+            if (m_post)
+                m_post->drawToScreen(display_w, display_h, m_exposure, m_gamma, m_fxaa);
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
             m_window->swapBuffers();

@@ -27,6 +27,7 @@ add_executable(${PROJECT_NAME}
     src/render/Texture2D.cpp
     src/render/ShadowMap.cpp
     src/render/PointShadowMap.cpp
+    src/render/PostProcess.cpp
     src/render/Skybox.cpp
     src/core/ResourceManager.cpp
     src/scene/SceneSerializer.cpp

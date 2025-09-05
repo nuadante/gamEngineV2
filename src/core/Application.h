@@ -19,6 +19,7 @@ namespace engine
     class ResourceManager;
     class ShadowMap;
     class PointShadowMap;
+    class PostProcess;
     class Skybox;
     class InputMap;
     class Physics;
@@ -63,6 +64,7 @@ namespace engine
         std::unique_ptr<Skybox> m_skybox;
         std::unique_ptr<InputMap> m_inputMap;
         std::unique_ptr<Physics> m_physics;
+        std::unique_ptr<PostProcess> m_post;
         ImVec4 m_clearColor = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
         bool m_showDemo = true;
         bool m_showAnother = false;
@@ -75,6 +77,10 @@ namespace engine
         char m_texPath[260] = "";
         bool m_wireframe = false;
         bool m_vsync = true;
+        // Post-process
+        float m_exposure = 1.0f;
+        float m_gamma = 2.2f;
+        bool m_fxaa = true;
         // Shader reloader
         char m_vsPath[260] = "";
         char m_fsPath[260] = "";
