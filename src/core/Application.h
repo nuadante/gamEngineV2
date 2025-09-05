@@ -16,6 +16,7 @@ namespace engine
     class Scene;
     class Transform;
     class ResourceManager;
+    class ShadowMap;
 
     class Application
     {
@@ -44,10 +45,11 @@ namespace engine
         std::unique_ptr<Scene> m_scene;
         std::unique_ptr<Transform> m_cubeTransform;
         std::unique_ptr<ResourceManager> m_resources;
+        std::unique_ptr<ShadowMap> m_shadowMap;
+        std::unique_ptr<Shader> m_depthShader;
         ImVec4 m_clearColor = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
         bool m_showDemo = true;
         bool m_showAnother = false;
-
         // Lighting/UI parameters
         float m_lightPos[3] = { 3.0f, 3.0f, 3.0f };
         float m_lightColor[3] = { 1.0f, 1.0f, 1.0f };
@@ -60,6 +62,13 @@ namespace engine
         // Shader reloader
         char m_vsPath[260] = "";
         char m_fsPath[260] = "";
+        // Shadows
+        bool m_shadowsEnabled = true;
+        float m_shadowBias = 0.0015f;
+        int m_shadowMapSize = 1024;
+        float m_shadowOrthoSize = 10.0f;
+        float m_shadowNear = 0.1f;
+        float m_shadowFar = 50.0f;
     };
 }
 

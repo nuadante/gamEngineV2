@@ -14,6 +14,7 @@
 #include "render/Renderer.h"
 #include "render/Camera.h"
 #include "render/Texture2D.h"
+#include "render/ShadowMap.h"
 #include "scene/Scene.h"
 #include "scene/Transform.h"
 #include "core/ResourceManager.h"
@@ -113,6 +114,11 @@ namespace engine
             uniform float u_Shininess;
             uniform bool u_UseTexture;
             uniform sampler2D u_AlbedoTex;
+            // shadows
+            uniform bool u_ShadowsEnabled;
+            uniform mat4 u_LightVP;
+            uniform sampler2D u_ShadowMap;
+            uniform float u_ShadowBias;
             void main()
             {
                 vec3 N = normalize(vNormal);
@@ -122,13 +128,48 @@ namespace engine
                 float diff = max(dot(N, L), 0.0);
                 float spec = pow(max(dot(N, H), 0.0), u_Shininess);
                 vec3 baseColor = u_UseTexture ? texture(u_AlbedoTex, vUV).rgb : u_Albedo;
-                vec3 color = baseColor * (0.1 + diff) + u_LightColor * spec;
+                float shadow = 0.0;
+                if (u_ShadowsEnabled)
+                {
+                    vec4 lightClip = u_LightVP * vec4(vWorldPos, 1.0);
+                    vec3 projCoords = lightClip.xyz / lightClip.w;
+                    projCoords = projCoords * 0.5 + 0.5;
+                    if (projCoords.x >= 0.0 && projCoords.x <= 1.0 && projCoords.y >= 0.0 && projCoords.y <= 1.0 && projCoords.z <= 1.0)
+                    {
+                        float closestDepth = texture(u_ShadowMap, projCoords.xy).r;
+                        float currentDepth = projCoords.z;
+                        shadow = currentDepth - u_ShadowBias > closestDepth ? 1.0 : 0.0;
+                    }
+                }
+                vec3 color = baseColor * (0.1 + (1.0 - shadow) * diff) + u_LightColor * (1.0 - shadow) * spec;
                 FragColor = vec4(color, 1.0);
             }
         )GLSL";
         m_shader = std::unique_ptr<Shader>(m_resources->getShaderFromSource("phong_textured", vs, fs));
         if (!m_shader)
             return false;
+
+        // Depth-only shader for shadow pass
+        const char* dvs = R"GLSL(
+            #version 330 core
+            layout (location = 0) in vec3 aPos;
+            uniform mat4 u_Model;
+            uniform mat4 u_LightVP;
+            void main()
+            {
+                gl_Position = u_LightVP * u_Model * vec4(aPos, 1.0);
+            }
+        )GLSL";
+        const char* dfs = R"GLSL(
+            #version 330 core
+            void main() {}
+        )GLSL";
+        m_depthShader = std::make_unique<Shader>();
+        if (!m_depthShader->compileFromSource(dvs, dfs))
+        {
+            std::cerr << "[DepthShader] compile failed" << std::endl;
+            return false;
+        }
 
         // Cube mesh
         m_cube = std::unique_ptr<Mesh>(m_resources->getCube("unit_cube"));
@@ -145,6 +186,14 @@ namespace engine
 
         // Texture (checkerboard)
         m_texture = std::unique_ptr<Texture2D>(m_resources->getCheckerboard("checker", 256, 256, 32));
+
+        // Shadow map
+        m_shadowMap = std::make_unique<ShadowMap>();
+        if (!m_shadowMap->create(m_shadowMapSize, m_shadowMapSize))
+        {
+            std::cerr << "[ShadowMap] create failed" << std::endl;
+            return false;
+        }
 
         // Scene setup
         m_scene = std::make_unique<Scene>();
@@ -207,6 +256,9 @@ namespace engine
                 ImGui::Checkbox("Wireframe", &m_wireframe);
                 ImGui::Checkbox("VSync", &m_vsync);
                 ImGui::Separator();
+                ImGui::Text("Shadows");
+                ImGui::Checkbox("Enable Shadows", &m_shadowsEnabled);
+                ImGui::SliderFloat("Bias", &m_shadowBias, 0.0001f, 0.01f, "%.5f");
                 ImGui::Text("Shader Reloader");
                 ImGui::InputText("VS Path", m_vsPath, sizeof(m_vsPath));
                 ImGui::InputText("FS Path", m_fsPath, sizeof(m_fsPath));
@@ -356,7 +408,30 @@ namespace engine
                 m_scene->entities()[i].transform.rotationEuler.y = angle * (1.0f + 0.2f * (float)i);
             }
 
-            // Render scene (single MeshRenderer for now)
+            // Shadow pass (directional light with orthographic proj)
+            glm::mat4 lightView = glm::lookAt(
+                glm::vec3(m_lightPos[0], m_lightPos[1], m_lightPos[2]),
+                glm::vec3(0.0f, 0.0f, 0.0f),
+                glm::vec3(0,1,0));
+            glm::mat4 lightProj = glm::ortho(-m_shadowOrthoSize, m_shadowOrthoSize, -m_shadowOrthoSize, m_shadowOrthoSize, m_shadowNear, m_shadowFar);
+            glm::mat4 lightVP = lightProj * lightView;
+            if (m_shadowsEnabled)
+            {
+                m_shadowMap->begin();
+                // render depth
+                for (const auto& e : m_scene->getEntities())
+                {
+                    glm::mat4 model = e.transform.modelMatrix();
+                    m_depthShader->bind();
+                    m_depthShader->setMat4("u_LightVP", &lightVP[0][0]);
+                    m_depthShader->setMat4("u_Model", &model[0][0]);
+                    e.mesh->draw();
+                }
+                m_depthShader->unbind();
+                m_shadowMap->end(display_w, display_h);
+            }
+
+            // Render scene
             for (const auto& e : m_scene->getEntities())
             {
                 glm::mat4 model = e.transform.modelMatrix();
@@ -382,6 +457,12 @@ namespace engine
                 {
                     e.shader->setInt("u_UseTexture", 0);
                 }
+                // shadows
+                e.shader->setInt("u_ShadowsEnabled", m_shadowsEnabled ? 1 : 0);
+                e.shader->setMat4("u_LightVP", &lightVP[0][0]);
+                e.shader->setFloat("u_ShadowBias", m_shadowBias);
+                m_shadowMap->bindDepthTexture(1);
+                e.shader->setInt("u_ShadowMap", 1);
                 e.mesh->draw();
                 e.shader->unbind();
             }
