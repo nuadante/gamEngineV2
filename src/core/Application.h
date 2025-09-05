@@ -83,6 +83,10 @@ namespace engine
         bool m_rebindActive = false;
         char m_rebindAxis[32] = "";
         bool m_rebindPositive = true;
+        // Gizmo state (0=Translate,1=Rotate,2=Scale), axis (0=X,1=Y,2=Z)
+        int m_gizmoOp = 0;
+        int m_gizmoAxis = 0;
+        float m_gizmoSensitivity = 0.01f;
     };
 }
 

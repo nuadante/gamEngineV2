@@ -17,11 +17,13 @@
 #include "render/ShadowMap.h"
 #include "render/Skybox.h"
 #include "input/InputMap.h"
+#include "scene/SceneSerializer.h"
 #include "scene/Scene.h"
 #include "scene/Transform.h"
 #include "core/ResourceManager.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include "core/Time.h"
 
 namespace engine
@@ -234,10 +236,22 @@ namespace engine
         {
             m_input->beginFrame();
             m_window->pollEvents();
+            // Shortcuts
+            if ((m_input->isKeyPressed(GLFW_KEY_LEFT_CONTROL) || m_input->isKeyPressed(GLFW_KEY_RIGHT_CONTROL)) && m_input->isKeyPressed(GLFW_KEY_S))
+            {
+                SceneSerializer::save(*m_scene, "scene.json");
+            }
+            if ((m_input->isKeyPressed(GLFW_KEY_LEFT_CONTROL) || m_input->isKeyPressed(GLFW_KEY_RIGHT_CONTROL)) && m_input->isKeyPressed(GLFW_KEY_O))
+            {
+                SceneSerializer::load(*m_scene, "scene.json");
+            }
 
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
+            // Gizmo external lib removed; using simple keyboard nudge
+
+            // (Docking devre dışı bırakıldı - imgui opsiyonları ile etkinleştirilebilir)
 
             if (m_showDemo)
             {
@@ -381,6 +395,12 @@ namespace engine
                         }
                     }
                 }
+                // Save/Load
+                static char scenePath[260] = "scene.json";
+                ImGui::InputText("Scene Path", scenePath, sizeof(scenePath));
+                if (ImGui::Button("Save (Ctrl+S)")) SceneSerializer::save(*m_scene, scenePath);
+                ImGui::SameLine();
+                if (ImGui::Button("Load (Ctrl+O)")) SceneSerializer::load(*m_scene, scenePath);
                 ImGui::End();
 
                 // Inspector
@@ -428,6 +448,15 @@ namespace engine
                                 if (t2d) ent.albedoTex = t2d;
                             }
                         }
+                        ImGui::Separator();
+                        ImGui::Text("Gizmo");
+                        ImGui::RadioButton("Translate (T)", &m_gizmoOp, 0); ImGui::SameLine();
+                        ImGui::RadioButton("Rotate (R)", &m_gizmoOp, 1); ImGui::SameLine();
+                        ImGui::RadioButton("Scale (S)", &m_gizmoOp, 2);
+                        ImGui::RadioButton("X", &m_gizmoAxis, 0); ImGui::SameLine();
+                        ImGui::RadioButton("Y", &m_gizmoAxis, 1); ImGui::SameLine();
+                        ImGui::RadioButton("Z", &m_gizmoAxis, 2);
+                        ImGui::SliderFloat("Gizmo Sens", &m_gizmoSensitivity, 0.001f, 0.1f, "%.3f");
                     }
                 }
                 ImGui::End();
@@ -443,7 +472,7 @@ namespace engine
                 ImGui::End();
             }
 
-            ImGui::Render();
+            // Defer ImGui::Render() until after gizmo manipulation is submitted
             int display_w, display_h;
             glfwGetFramebufferSize(m_window->getNativeHandle(), &display_w, &display_h);
             Renderer::setWireframe(m_wireframe);
@@ -564,9 +593,36 @@ namespace engine
                 e.shader->unbind();
             }
 
+            // Simple keyboard gizmo
+            {
+                int selIdx = m_scene->selectedIndex();
+                if (selIdx >= 0)
+                {
+                    auto& ent = m_scene->entities()[selIdx];
+                    if (m_input->isKeyPressed(GLFW_KEY_T)) m_gizmoOp = 0;
+                    if (m_input->isKeyPressed(GLFW_KEY_R)) m_gizmoOp = 1;
+                    if (m_input->isKeyPressed(GLFW_KEY_S)) m_gizmoOp = 2;
+                    float delta = (float)m_gizmoSensitivity;
+                    if (m_input->isKeyPressed(GLFW_KEY_LEFT))
+                    {
+                        if (m_gizmoOp == 0) (&ent.transform.position.x)[m_gizmoAxis] -= delta;
+                        else if (m_gizmoOp == 1) (&ent.transform.rotationEuler.x)[m_gizmoAxis] -= delta;
+                        else (&ent.transform.scale.x)[m_gizmoAxis] *= (1.0f - delta);
+                    }
+                    if (m_input->isKeyPressed(GLFW_KEY_RIGHT))
+                    {
+                        if (m_gizmoOp == 0) (&ent.transform.position.x)[m_gizmoAxis] += delta;
+                        else if (m_gizmoOp == 1) (&ent.transform.rotationEuler.x)[m_gizmoAxis] += delta;
+                        else (&ent.transform.scale.x)[m_gizmoAxis] *= (1.0f + delta);
+                    }
+                }
+            }
+
             // Draw skybox last
             m_skybox->draw(m_camera->projection(), m_camera->view(), {m_skyTop[0], m_skyTop[1], m_skyTop[2]}, {m_skyBottom[0], m_skyBottom[1], m_skyBottom[2]});
 
+            // Finalize ImGui and render draw data
+            ImGui::Render();
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
             m_window->swapBuffers();

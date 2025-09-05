@@ -1,0 +1,70 @@
+#include "scene/SceneSerializer.h"
+#include "scene/Scene.h"
+
+#include <nlohmann/json.hpp>
+#include <fstream>
+
+using json = nlohmann::json;
+
+namespace engine
+{
+    static json entityToJson(const Entity& e)
+    {
+        json j;
+        j["name"] = e.name;
+        j["position"] = { e.transform.position.x, e.transform.position.y, e.transform.position.z };
+        j["rotation"] = { e.transform.rotationEuler.x, e.transform.rotationEuler.y, e.transform.rotationEuler.z };
+        j["scale"]    = { e.transform.scale.x,    e.transform.scale.y,    e.transform.scale.z };
+        j["albedo"]   = { e.albedo[0], e.albedo[1], e.albedo[2] };
+        j["shininess"] = e.shininess;
+        j["useTexture"] = e.useTexture;
+        return j;
+    }
+
+    static void jsonToEntity(const json& j, Entity& e)
+    {
+        e.name = j.value("name", std::string("Entity"));
+        auto p = j.value("position", std::vector<float>{0,0,0});
+        auto r = j.value("rotation", std::vector<float>{0,0,0});
+        auto s = j.value("scale",    std::vector<float>{1,1,1});
+        auto a = j.value("albedo",   std::vector<float>{1,1,1});
+        e.transform.position = { p[0], p[1], p[2] };
+        e.transform.rotationEuler = { r[0], r[1], r[2] };
+        e.transform.scale = { s[0], s[1], s[2] };
+        e.albedo[0] = a[0]; e.albedo[1] = a[1]; e.albedo[2] = a[2];
+        e.shininess = j.value("shininess", 64.0f);
+        e.useTexture = j.value("useTexture", true);
+    }
+
+    bool SceneSerializer::save(const Scene& scene, const std::string& path)
+    {
+        json j;
+        json arr = json::array();
+        for (const auto& e : scene.getEntities())
+            arr.push_back(entityToJson(e));
+        j["entities"] = arr;
+        std::ofstream f(path, std::ios::binary);
+        if (!f) return false;
+        f << j.dump(2);
+        return true;
+    }
+
+    bool SceneSerializer::load(Scene& scene, const std::string& path)
+    {
+        std::ifstream f(path, std::ios::binary);
+        if (!f) return false;
+        json j; f >> j;
+        scene.entities().clear();
+        if (!j.contains("entities")) return true;
+        for (const auto& je : j["entities"])
+        {
+            Entity e{};
+            jsonToEntity(je, e);
+            scene.entities().push_back(e);
+        }
+        scene.setSelectedIndex(scene.getEntities().empty() ? -1 : 0);
+        return true;
+    }
+}
+
+

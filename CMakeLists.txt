@@ -10,6 +10,7 @@ find_package(glfw3 REQUIRED)
 find_package(glad REQUIRED)
 find_package(glm REQUIRED)
 find_package(stb REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 # Create executable
 add_executable(${PROJECT_NAME}
@@ -25,6 +26,7 @@ add_executable(${PROJECT_NAME}
     src/render/ShadowMap.cpp
     src/render/Skybox.cpp
     src/core/ResourceManager.cpp
+    src/scene/SceneSerializer.cpp
     src/scene/Scene.h
     src/scene/Transform.h
 )
@@ -36,6 +38,7 @@ target_link_libraries(${PROJECT_NAME}
     glad::glad
     glm::glm
     stb::stb
+    nlohmann_json::nlohmann_json
 )
 
 # Include directories
