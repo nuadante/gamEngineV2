@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 #include <imgui.h>
 
 struct GLFWwindow;
@@ -90,8 +91,9 @@ namespace engine
         int m_gizmoAxis = 0;
         float m_gizmoSensitivity = 0.01f;
 
-        // Physics mapping: track one demo dynamic box actor for sync (future: map per-entity)
-        void* m_demoBoxActor = nullptr; // store PxRigidDynamic* as void* to avoid exposing physx headers here
+        struct PhysBinding { void* actor; int entityIndex; };
+        std::vector<PhysBinding> m_physBindings;
+        bool m_drawColliders = true;
     };
 }
 

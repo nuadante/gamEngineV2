@@ -24,6 +24,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/quaternion.hpp>
 #include "core/Time.h"
 #include "physics/Physics.h"
 #include <PxPhysicsAPI.h>
@@ -232,8 +233,12 @@ namespace engine
             if (m_physics->createDefaultScene(-9.81f))
             {
                 m_physics->addGroundPlane();
-                // spawn a falling box to demo and keep handle
-                m_demoBoxActor = m_physics->addDynamicBox(0.0f, 5.0f, 0.0f, 0.5f, 0.5f, 0.5f, 1.0f);
+                // spawn a falling box to demo and map to the first entity if exists
+                if (!m_scene->entities().empty())
+                {
+                    void* act = m_physics->addDynamicBox(0.0f, 5.0f, 0.0f, 0.5f, 0.5f, 0.5f, 1.0f);
+                    if (act) m_physBindings.push_back({ act, 0 });
+                }
             }
         }
 
@@ -298,6 +303,7 @@ namespace engine
                 ImGui::Separator();
                 ImGui::Checkbox("Wireframe", &m_wireframe);
                 ImGui::Checkbox("VSync", &m_vsync);
+                ImGui::Checkbox("Draw Colliders", &m_drawColliders);
                 ImGui::Separator();
                 ImGui::Text("Shadows");
                 ImGui::Checkbox("Enable Shadows", &m_shadowsEnabled);
@@ -310,8 +316,6 @@ namespace engine
                 ImGui::Checkbox("Use Cubemap", &useCube);
                 if (ImGui::Button("Load Cubemap"))
                 {
-                    // Expect filenames entered previously via tex path fields or hardcode for demo
-                    // Here we demonstrate using 6 files next to exe; user can change paths in code later
                     std::vector<std::string> faces = {
                         "right.jpg","left.jpg","top.jpg","bottom.jpg","front.jpg","back.jpg"
                     };
@@ -345,7 +349,6 @@ namespace engine
                 if (m_rebindActive)
                 {
                     ImGui::Text("Press a key to bind %s %s", m_rebindAxis, m_rebindPositive?"(+)":"(-)");
-                    // poll keys 32..348 (GLFW_KEY_LAST)
                     for (int k = 32; k <= 348; ++k)
                     {
                         if (m_input->isKeyPressed(k))
@@ -398,6 +401,19 @@ namespace engine
                     {
                         int sel = m_scene->selectedIndex();
                         if (sel >= 0) m_scene->removeEntity(sel);
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Spawn Phys Box"))
+                    {
+                        int idx = (int)m_scene->entities().size();
+                        int e = m_scene->addEntity(std::string("PhysBox ") + std::to_string(idx), m_cube.get(), m_shader.get(), m_texture.get());
+                        m_scene->entities()[e].transform.position = { 0.0f, 5.0f, 0.0f };
+                        if (m_physics)
+                        {
+                            void* act = m_physics->addDynamicBox(0.0f, 5.0f, 0.0f, 0.5f, 0.5f, 0.5f, 1.0f);
+                            if (act)
+                                m_physBindings.push_back({ act, e });
+                        }
                     }
                     auto& es = m_scene->entities();
                     for (int i = 0; i < (int)es.size(); ++i)
@@ -547,19 +563,17 @@ namespace engine
                 m_scene->entities()[i].transform.rotationEuler.y = angle * (1.0f + 0.2f * (float)i);
             }
 
-            // Step physics and sync the first entity to demo box actor
+            // Step physics and sync bound entities
             if (m_physics)
             {
                 m_physics->simulate(dt);
-                // simple sync: if we have a demo actor, copy its pose to entity 0
-                if (m_demoBoxActor && !m_scene->entities().empty())
+                for (const auto& b : m_physBindings)
                 {
-                    physx::PxRigidDynamic* body = reinterpret_cast<physx::PxRigidDynamic*>(m_demoBoxActor);
+                    if (b.entityIndex < 0 || b.entityIndex >= (int)m_scene->entities().size()) continue;
+                    physx::PxRigidDynamic* body = reinterpret_cast<physx::PxRigidDynamic*>(b.actor);
                     physx::PxTransform p = body->getGlobalPose();
-                    auto& t0 = m_scene->entities()[0].transform;
-                    t0.position = { p.p.x, p.p.y, p.p.z };
-                    // convert quaternion to euler (approx)
-                    // yaw-pitch-roll from quaternion
+                    auto& t = m_scene->entities()[b.entityIndex].transform;
+                    t.position = { p.p.x, p.p.y, p.p.z };
                     float qw = p.q.w, qx = p.q.x, qy = p.q.y, qz = p.q.z;
                     float sinr_cosp = 2.0f * (qw * qx + qy * qz);
                     float cosr_cosp = 1.0f - 2.0f * (qx * qx + qy * qy);
@@ -569,7 +583,7 @@ namespace engine
                     float siny_cosp = 2.0f * (qw * qz + qx * qy);
                     float cosy_cosp = 1.0f - 2.0f * (qy * qy + qz * qz);
                     float yaw = std::atan2(siny_cosp, cosy_cosp);
-                    t0.rotationEuler = { pitch, yaw, roll };
+                    t.rotationEuler = { pitch, yaw, roll };
                 }
             }
 
@@ -630,6 +644,51 @@ namespace engine
                 e.shader->setInt("u_ShadowMap", 1);
                 e.mesh->draw();
                 e.shader->unbind();
+            }
+
+            // Debug draw colliders (boxes only)
+            if (m_drawColliders && m_physics)
+            {
+                bool prevWire = m_wireframe;
+                Renderer::setWireframe(true);
+                for (const auto& b : m_physBindings)
+                {
+                    physx::PxRigidDynamic* body = reinterpret_cast<physx::PxRigidDynamic*>(b.actor);
+                    if (!body) continue;
+                    physx::PxU32 numShapes = body->getNbShapes();
+                    if (numShapes == 0) continue;
+                    std::vector<physx::PxShape*> shapes(numShapes);
+                    body->getShapes(shapes.data(), numShapes);
+                    for (physx::PxShape* s : shapes)
+                    {
+                        physx::PxBoxGeometry boxGeo;
+                        if (s->getBoxGeometry(boxGeo))
+                        {
+                            physx::PxTransform aPose = body->getGlobalPose() * s->getLocalPose();
+                            glm::mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(aPose.p.x, aPose.p.y, aPose.p.z));
+                            glm::quat rq(aPose.q.w, aPose.q.x, aPose.q.y, aPose.q.z);
+                            glm::mat4 R = glm::toMat4(rq);
+                            glm::mat4 S = glm::scale(glm::mat4(1.0f), glm::vec3(boxGeo.halfExtents.x * 2.0f, boxGeo.halfExtents.y * 2.0f, boxGeo.halfExtents.z * 2.0f));
+                            glm::mat4 model = T * R * S;
+                            glm::mat4 mvp = m_camera->projection() * m_camera->view() * model;
+                            glm::mat3 normalMat = glm::mat3(glm::transpose(glm::inverse(model)));
+                            m_shader->bind();
+                            m_shader->setMat4("u_MVP", &mvp[0][0]);
+                            m_shader->setMat4("u_Model", &model[0][0]);
+                            m_shader->setMat3("u_NormalMatrix", &normalMat[0][0]);
+                            m_shader->setVec3("u_CameraPos", m_camera->position().x, m_camera->position().y, m_camera->position().z);
+                            m_shader->setVec3("u_LightPos", m_lightPos[0], m_lightPos[1], m_lightPos[2]);
+                            m_shader->setVec3("u_LightColor", 0.0f, 1.0f, 0.0f);
+                            m_shader->setVec3("u_Albedo", 0.0f, 1.0f, 0.0f);
+                            m_shader->setFloat("u_Shininess", 8.0f);
+                            m_shader->setInt("u_UseTexture", 0);
+                            m_shader->setInt("u_ShadowsEnabled", 0);
+                            m_cube->draw();
+                            m_shader->unbind();
+                        }
+                    }
+                }
+                Renderer::setWireframe(prevWire);
             }
 
             // Simple keyboard gizmo
