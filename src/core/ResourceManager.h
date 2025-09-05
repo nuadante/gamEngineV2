@@ -20,6 +20,7 @@ namespace engine
         Texture2D* getTextureFromFile(const std::string& path, bool flipY);
         Texture2D* getCheckerboard(const std::string& key, int width, int height, int tileSize);
         Mesh* getCube(const std::string& key);
+        Mesh* getPlane(const std::string& key);
 
     private:
         std::unordered_map<std::string, std::unique_ptr<Shader>> m_shaders;

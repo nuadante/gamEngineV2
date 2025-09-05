@@ -49,6 +49,16 @@ namespace engine
         m_meshes[key] = std::move(mesh);
         return ptr;
     }
+
+    Mesh* ResourceManager::getPlane(const std::string& key)
+    {
+        auto it = m_meshes.find(key);
+        if (it != m_meshes.end()) return it->second.get();
+        auto mesh = std::make_unique<Mesh>(Mesh::createPlane());
+        Mesh* ptr = mesh.get();
+        m_meshes[key] = std::move(mesh);
+        return ptr;
+    }
 }
 
 

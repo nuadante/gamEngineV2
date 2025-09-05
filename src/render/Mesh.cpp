@@ -121,6 +121,22 @@ namespace engine
         m.create(v, idx);
         return m;
     }
+
+    Mesh Mesh::createPlane()
+    {
+        // Simple 2x2 quad in XZ-plane centered at origin
+        std::vector<float> v = {
+            // positions           // normals      // uvs
+            -1.0f, 0.0f, -1.0f,    0,1,0,          0,0,
+             1.0f, 0.0f, -1.0f,    0,1,0,          1,0,
+             1.0f, 0.0f,  1.0f,    0,1,0,          1,1,
+            -1.0f, 0.0f,  1.0f,    0,1,0,          0,1,
+        };
+        std::vector<unsigned int> idx = { 0,1,2, 2,3,0 };
+        Mesh m;
+        m.create(v, idx);
+        return m;
+    }
 }
 
 

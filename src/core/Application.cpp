@@ -254,6 +254,28 @@ namespace engine
                         ImGui::ColorEdit3("Albedo", ent.albedo);
                         ImGui::SliderFloat("Shininess", &ent.shininess, 1.0f, 256.0f);
                         ImGui::Checkbox("Use Texture (entity)", &ent.useTexture);
+                        ImGui::Separator();
+                        // Mesh picker
+                        static int meshChoice = 0; // 0 Cube, 1 Plane
+                        ImGui::Text("Mesh");
+                        ImGui::RadioButton("Cube", &meshChoice, 0); ImGui::SameLine();
+                        ImGui::RadioButton("Plane", &meshChoice, 1);
+                        if (ImGui::Button("Apply Mesh"))
+                        {
+                            if (meshChoice == 0) ent.mesh = m_resources->getCube("unit_cube");
+                            else ent.mesh = m_resources->getPlane("unit_plane");
+                        }
+                        // Texture load for this entity
+                        static char entTexPath[260] = "";
+                        ImGui::InputText("Entity Tex Path", entTexPath, sizeof(entTexPath));
+                        if (ImGui::Button("Load Entity Texture"))
+                        {
+                            if (entTexPath[0] != '\0')
+                            {
+                                Texture2D* t2d = m_resources->getTextureFromFile(entTexPath, true);
+                                if (t2d) ent.albedoTex = t2d;
+                            }
+                        }
                     }
                 }
                 ImGui::End();

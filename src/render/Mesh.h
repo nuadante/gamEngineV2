@@ -21,6 +21,7 @@ namespace engine
         void destroy();
 
         static Mesh createCube();
+        static Mesh createPlane();
 
     private:
         unsigned int m_vao = 0;
