@@ -39,6 +39,12 @@ namespace engine
         ImVec4 m_clearColor = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
         bool m_showDemo = true;
         bool m_showAnother = false;
+
+        // Lighting/UI parameters
+        float m_lightPos[3] = { 3.0f, 3.0f, 3.0f };
+        float m_lightColor[3] = { 1.0f, 1.0f, 1.0f };
+        float m_albedo[3] = { 1.0f, 0.7f, 0.2f };
+        float m_shininess = 64.0f;
     };
 }
 

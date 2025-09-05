@@ -162,6 +162,14 @@ namespace engine
                 ImGui::Checkbox("Demo Pencere", &m_showDemo);
                 ImGui::Checkbox("Başka Pencere", &m_showAnother);
                 ImGui::ColorEdit3("clear color", (float*)&m_clearColor);
+                ImGui::Separator();
+                ImGui::Text("Lighting");
+                ImGui::DragFloat3("Light Pos", m_lightPos, 0.1f);
+                ImGui::ColorEdit3("Light Color", m_lightColor);
+                ImGui::Separator();
+                ImGui::Text("Material");
+                ImGui::ColorEdit3("Albedo", m_albedo);
+                ImGui::SliderFloat("Shininess", &m_shininess, 1.0f, 256.0f);
                 ImGui::End();
             }
 
@@ -210,10 +218,10 @@ namespace engine
             m_shader->setMat4("u_Model", &model[0][0]);
             m_shader->setMat3("u_NormalMatrix", &normalMat[0][0]);
             m_shader->setVec3("u_CameraPos", m_camera->position().x, m_camera->position().y, m_camera->position().z);
-            m_shader->setVec3("u_LightPos", 3.0f, 3.0f, 3.0f);
-            m_shader->setVec3("u_LightColor", 1.0f, 1.0f, 1.0f);
-            m_shader->setVec3("u_Albedo", 1.0f, 0.7f, 0.2f);
-            m_shader->setFloat("u_Shininess", 64.0f);
+            m_shader->setVec3("u_LightPos", m_lightPos[0], m_lightPos[1], m_lightPos[2]);
+            m_shader->setVec3("u_LightColor", m_lightColor[0], m_lightColor[1], m_lightColor[2]);
+            m_shader->setVec3("u_Albedo", m_albedo[0], m_albedo[1], m_albedo[2]);
+            m_shader->setFloat("u_Shininess", m_shininess);
             m_cube->draw();
             m_shader->unbind();
 
