@@ -19,6 +19,7 @@ namespace engine
     class ShadowMap;
     class Skybox;
     class InputMap;
+    class Physics;
 
     class Application
     {
@@ -51,6 +52,7 @@ namespace engine
         std::unique_ptr<Shader> m_depthShader;
         std::unique_ptr<Skybox> m_skybox;
         std::unique_ptr<InputMap> m_inputMap;
+        std::unique_ptr<Physics> m_physics;
         ImVec4 m_clearColor = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
         bool m_showDemo = true;
         bool m_showAnother = false;
@@ -87,6 +89,9 @@ namespace engine
         int m_gizmoOp = 0;
         int m_gizmoAxis = 0;
         float m_gizmoSensitivity = 0.01f;
+
+        // Physics mapping: track one demo dynamic box actor for sync (future: map per-entity)
+        void* m_demoBoxActor = nullptr; // store PxRigidDynamic* as void* to avoid exposing physx headers here
     };
 }
 

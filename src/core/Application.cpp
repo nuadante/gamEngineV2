@@ -25,6 +25,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include "core/Time.h"
+#include "physics/Physics.h"
+#include <PxPhysicsAPI.h>
 
 namespace engine
 {
@@ -222,6 +224,18 @@ namespace engine
         m_scene->entities()[e0].transform.position = { -1.2f, 0.0f, 0.0f };
         m_scene->entities()[e1].transform.position = {  0.0f, 0.0f, 0.0f };
         m_scene->entities()[e2].transform.position = {  1.2f, 0.0f, 0.0f };
+
+        // Physics setup
+        m_physics = std::make_unique<Physics>();
+        if (m_physics->initialize())
+        {
+            if (m_physics->createDefaultScene(-9.81f))
+            {
+                m_physics->addGroundPlane();
+                // spawn a falling box to demo and keep handle
+                m_demoBoxActor = m_physics->addDynamicBox(0.0f, 5.0f, 0.0f, 0.5f, 0.5f, 0.5f, 1.0f);
+            }
+        }
 
         return true;
     }
@@ -528,10 +542,35 @@ namespace engine
             // Update cube rotation
             static float angle = 0.0f;
             angle += dt;
-            // animate each entity slightly differently
             for (size_t i = 0; i < m_scene->entities().size(); ++i)
             {
                 m_scene->entities()[i].transform.rotationEuler.y = angle * (1.0f + 0.2f * (float)i);
+            }
+
+            // Step physics and sync the first entity to demo box actor
+            if (m_physics)
+            {
+                m_physics->simulate(dt);
+                // simple sync: if we have a demo actor, copy its pose to entity 0
+                if (m_demoBoxActor && !m_scene->entities().empty())
+                {
+                    physx::PxRigidDynamic* body = reinterpret_cast<physx::PxRigidDynamic*>(m_demoBoxActor);
+                    physx::PxTransform p = body->getGlobalPose();
+                    auto& t0 = m_scene->entities()[0].transform;
+                    t0.position = { p.p.x, p.p.y, p.p.z };
+                    // convert quaternion to euler (approx)
+                    // yaw-pitch-roll from quaternion
+                    float qw = p.q.w, qx = p.q.x, qy = p.q.y, qz = p.q.z;
+                    float sinr_cosp = 2.0f * (qw * qx + qy * qz);
+                    float cosr_cosp = 1.0f - 2.0f * (qx * qx + qy * qy);
+                    float roll = std::atan2(sinr_cosp, cosr_cosp);
+                    float sinp = 2.0f * (qw * qy - qz * qx);
+                    float pitch = std::abs(sinp) >= 1 ? std::copysign(3.14159265f / 2.0f, sinp) : std::asin(sinp);
+                    float siny_cosp = 2.0f * (qw * qz + qx * qy);
+                    float cosy_cosp = 1.0f - 2.0f * (qy * qy + qz * qz);
+                    float yaw = std::atan2(siny_cosp, cosy_cosp);
+                    t0.rotationEuler = { pitch, yaw, roll };
+                }
             }
 
             // Shadow pass (directional light with orthographic proj)

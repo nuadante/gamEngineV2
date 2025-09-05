@@ -11,11 +11,13 @@ find_package(glad REQUIRED)
 find_package(glm REQUIRED)
 find_package(stb REQUIRED)
 find_package(nlohmann_json REQUIRED)
+find_package(physx REQUIRED)
 
 # Create executable
 add_executable(${PROJECT_NAME}
     src/main.cpp
     src/core/Application.cpp
+    src/physics/Physics.cpp
     src/platform/Window.cpp
     src/input/InputManager.cpp
     src/render/Shader.cpp
@@ -39,6 +41,8 @@ target_link_libraries(${PROJECT_NAME}
     glm::glm
     stb::stb
     nlohmann_json::nlohmann_json
+    physx::physx
+    PhysX::PhysXExtensions
 )
 
 # Include directories

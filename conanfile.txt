@@ -5,6 +5,7 @@ glad/0.1.36
 glm/0.9.9.8
 stb/cci.20240531
 nlohmann_json/3.12.0
+physx/4.1.2
 
 [generators]
 CMakeDeps
