@@ -9,6 +9,7 @@ namespace engine
         static void beginFrame(int width, int height, float r, float g, float b, float a);
         static void endFrame();
         static void shutdown();
+        static void setWireframe(bool enabled);
     };
 }
 

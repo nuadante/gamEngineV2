@@ -55,6 +55,8 @@ namespace engine
         float m_shininess = 64.0f;
         bool m_useTexture = true;
         char m_texPath[260] = "";
+        bool m_wireframe = false;
+        bool m_vsync = true;
     };
 }
 

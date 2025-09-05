@@ -23,6 +23,11 @@ namespace engine
     void Renderer::shutdown()
     {
     }
+
+    void Renderer::setWireframe(bool enabled)
+    {
+        glPolygonMode(GL_FRONT_AND_BACK, enabled ? GL_LINE : GL_FILL);
+    }
 }
 
 

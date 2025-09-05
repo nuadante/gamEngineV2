@@ -203,6 +203,9 @@ namespace engine
                         m_texture->loadFromFile(m_texPath, true);
                     }
                 }
+                ImGui::Separator();
+                ImGui::Checkbox("Wireframe", &m_wireframe);
+                ImGui::Checkbox("VSync", &m_vsync);
 
                 // Hierarchy
                 if (ImGui::Begin("Hierarchy"))
@@ -294,6 +297,8 @@ namespace engine
             ImGui::Render();
             int display_w, display_h;
             glfwGetFramebufferSize(m_window->getNativeHandle(), &display_w, &display_h);
+            Renderer::setWireframe(m_wireframe);
+            glfwSwapInterval(m_vsync ? 1 : 0);
             Renderer::beginFrame(display_w, display_h, m_clearColor.x * m_clearColor.w, m_clearColor.y * m_clearColor.w, m_clearColor.z * m_clearColor.w, m_clearColor.w);
 
             // Camera controls
