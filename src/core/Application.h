@@ -8,6 +8,10 @@ struct GLFWwindow;
 namespace engine
 {
     class Window;
+    class Shader;
+    class Mesh;
+    class Camera;
+    class Time;
 
     class Application
     {
@@ -28,6 +32,10 @@ namespace engine
     private:
         std::unique_ptr<Window> m_window;
         std::unique_ptr<class InputManager> m_input;
+        std::unique_ptr<Shader> m_shader;
+        std::unique_ptr<Mesh> m_cube;
+        std::unique_ptr<Camera> m_camera;
+        std::unique_ptr<Time> m_time;
         ImVec4 m_clearColor = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
         bool m_showDemo = true;
         bool m_showAnother = false;

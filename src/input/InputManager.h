@@ -18,6 +18,8 @@ namespace engine
         bool isKeyPressed(int key) const;
         bool isMouseButtonPressed(int button) const;
         void getCursorPosition(double& x, double& y) const;
+        void getCursorDelta(double& dx, double& dy) const;
+        void beginFrame();
 
     private:
         static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
@@ -34,6 +36,11 @@ namespace engine
         std::vector<bool> m_mouseButtons;
         double m_cursorX = 0.0;
         double m_cursorY = 0.0;
+        double m_lastCursorX = 0.0;
+        double m_lastCursorY = 0.0;
+        double m_cursorDeltaX = 0.0;
+        double m_cursorDeltaY = 0.0;
+        bool m_hasLastCursor = false;
 
         static InputManager* s_instance;
     };

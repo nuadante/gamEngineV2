@@ -31,6 +31,8 @@ namespace engine
         s_instance = nullptr;
         m_keys.clear();
         m_mouseButtons.clear();
+        m_hasLastCursor = false;
+        m_cursorDeltaX = m_cursorDeltaY = 0.0;
     }
 
     bool InputManager::isKeyPressed(int key) const
@@ -49,6 +51,18 @@ namespace engine
     {
         x = m_cursorX;
         y = m_cursorY;
+    }
+
+    void InputManager::getCursorDelta(double& dx, double& dy) const
+    {
+        dx = m_cursorDeltaX;
+        dy = m_cursorDeltaY;
+    }
+
+    void InputManager::beginFrame()
+    {
+        m_cursorDeltaX = 0.0;
+        m_cursorDeltaY = 0.0;
     }
 
     InputManager* InputManager::from(GLFWwindow* window)
@@ -89,6 +103,16 @@ namespace engine
         if (!self) return;
         self->m_cursorX = xpos;
         self->m_cursorY = ypos;
+        if (!self->m_hasLastCursor)
+        {
+            self->m_lastCursorX = xpos;
+            self->m_lastCursorY = ypos;
+            self->m_hasLastCursor = true;
+        }
+        self->m_cursorDeltaX += (xpos - self->m_lastCursorX);
+        self->m_cursorDeltaY += (ypos - self->m_lastCursorY);
+        self->m_lastCursorX = xpos;
+        self->m_lastCursorY = ypos;
         ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
     }
 

@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(imgui REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(glad REQUIRED)
+find_package(glm REQUIRED)
 
 # Create executable
 add_executable(${PROJECT_NAME}
@@ -15,6 +16,10 @@ add_executable(${PROJECT_NAME}
     src/core/Application.cpp
     src/platform/Window.cpp
     src/input/InputManager.cpp
+    src/render/Shader.cpp
+    src/render/Mesh.cpp
+    src/render/Renderer.cpp
+    src/render/Camera.cpp
 )
 
 # Link libraries
@@ -22,6 +27,7 @@ target_link_libraries(${PROJECT_NAME}
     imgui::imgui
     glfw
     glad::glad
+    glm::glm
 )
 
 # Include directories

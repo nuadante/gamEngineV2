@@ -9,6 +9,14 @@
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_opengl3.h>
+#include "render/Shader.h"
+#include "render/Mesh.h"
+#include "render/Renderer.h"
+#include "render/Camera.h"
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include "core/Time.h"
+\
 
 namespace engine
 {
@@ -61,6 +69,50 @@ namespace engine
         }
         std::cout << "[App] ImGui initialized" << std::endl;
 
+        // Renderer bootstrap
+        int fbw, fbh; glfwGetFramebufferSize(m_window->getNativeHandle(), &fbw, &fbh);
+        Renderer::initialize();
+
+        // Create shader
+        m_shader = std::make_unique<Shader>();
+        const char* vs = R"GLSL(
+            #version 330 core
+            layout (location = 0) in vec3 aPos;
+            layout (location = 1) in vec3 aNormal;
+            layout (location = 2) in vec2 aUV;
+            uniform mat4 u_MVP;
+            void main()
+            {
+                gl_Position = u_MVP * vec4(aPos, 1.0);
+            }
+        )GLSL";
+        const char* fs = R"GLSL(
+            #version 330 core
+            out vec4 FragColor;
+            void main()
+            {
+                FragColor = vec4(1.0, 0.7, 0.2, 1.0);
+            }
+        )GLSL";
+        if (!m_shader->compileFromSource(vs, fs))
+        {
+            std::cerr << "[App] Shader compile failed" << std::endl;
+            return false;
+        }
+
+        // Cube mesh
+        m_cube = std::make_unique<Mesh>(Mesh::createCube());
+
+        // Camera
+        m_camera = std::make_unique<Camera>();
+        float aspect = fbw > 0 && fbh > 0 ? (float)fbw / (float)fbh : 16.0f/9.0f;
+        m_camera->setPerspective(45.0f * 3.14159265f / 180.0f, aspect, 0.1f, 100.0f);
+        m_camera->setView({2.0f, 2.0f, 2.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f});
+
+        // Time
+        m_time = std::make_unique<Time>();
+        m_time->reset();
+
         return true;
     }
 
@@ -72,6 +124,7 @@ namespace engine
         std::cout << "[App] Entering main loop" << std::endl;
         while (m_window->isOpen())
         {
+            m_input->beginFrame();
             m_window->pollEvents();
 
             ImGui_ImplOpenGL3_NewFrame();
@@ -105,9 +158,37 @@ namespace engine
             ImGui::Render();
             int display_w, display_h;
             glfwGetFramebufferSize(m_window->getNativeHandle(), &display_w, &display_h);
-            glViewport(0, 0, display_w, display_h);
-            glClearColor(m_clearColor.x * m_clearColor.w, m_clearColor.y * m_clearColor.w, m_clearColor.z * m_clearColor.w, m_clearColor.w);
-            glClear(GL_COLOR_BUFFER_BIT);
+            Renderer::beginFrame(display_w, display_h, m_clearColor.x * m_clearColor.w, m_clearColor.y * m_clearColor.w, m_clearColor.z * m_clearColor.w, m_clearColor.w);
+
+            // Camera controls
+            float dt = m_time->tick();
+            double mdx, mdy; m_input->getCursorDelta(mdx, mdy);
+            const float mouseSensitivity = 0.1f;
+            if (m_input->isMouseButtonPressed(GLFW_MOUSE_BUTTON_RIGHT))
+            {
+                m_camera->addYawPitch((float)(mdx * mouseSensitivity), (float)(-mdy * mouseSensitivity));
+            }
+            glm::vec3 move(0.0f);
+            const float speed = 3.0f;
+            if (m_input->isKeyPressed(GLFW_KEY_W)) move.z += speed * dt;
+            if (m_input->isKeyPressed(GLFW_KEY_S)) move.z -= speed * dt;
+            if (m_input->isKeyPressed(GLFW_KEY_A)) move.x -= speed * dt;
+            if (m_input->isKeyPressed(GLFW_KEY_D)) move.x += speed * dt;
+            if (m_input->isKeyPressed(GLFW_KEY_E)) move.y += speed * dt;
+            if (m_input->isKeyPressed(GLFW_KEY_Q)) move.y -= speed * dt;
+            if (move.x != 0 || move.y != 0 || move.z != 0) m_camera->moveLocal(move);
+
+            // Draw cube
+            static float angle = 0.0f;
+            angle += dt;
+            glm::mat4 model(1.0f);
+            model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
+            glm::mat4 mvp = m_camera->projection() * m_camera->view() * model;
+            m_shader->bind();
+            m_shader->setMat4("u_MVP", &mvp[0][0]);
+            m_cube->draw();
+            m_shader->unbind();
+
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
             m_window->swapBuffers();
@@ -121,6 +202,10 @@ namespace engine
     void Application::shutdown()
     {
         shutdownImGui();
+        Renderer::shutdown();
+        m_cube.reset();
+        m_shader.reset();
+        m_camera.reset();
         if (m_input)
         {
             m_input->shutdown();
