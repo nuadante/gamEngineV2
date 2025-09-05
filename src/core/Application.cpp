@@ -297,6 +297,37 @@ namespace engine
                 ImGui::Separator();
                 ImGui::Text("Camera");
                 ImGui::Checkbox("Orbit Mode (RMB drag + scroll)", &m_orbitMode);
+                ImGui::SliderFloat("Speed", &m_cameraSpeed, 0.1f, 20.0f);
+                ImGui::SliderFloat("Mouse Sensitivity", &m_mouseSensitivity, 0.01f, 1.0f);
+                ImGui::Separator();
+                ImGui::Text("Input Mapping");
+                auto drawRebind = [&](const char* axisName){
+                    auto a = m_inputMap->axis(axisName);
+                    ImGui::Text("%s: +%d  -%d", axisName, a.positiveKey, a.negativeKey);
+                    ImGui::SameLine();
+                    std::string btnP = std::string("Rebind + ( ") + axisName + ")";
+                    if (ImGui::Button(btnP.c_str())) { m_rebindActive = true; strncpy_s(m_rebindAxis, axisName, sizeof(m_rebindAxis)-1); m_rebindPositive = true; }
+                    ImGui::SameLine();
+                    std::string btnN = std::string("Rebind - ( ") + axisName + ")";
+                    if (ImGui::Button(btnN.c_str())) { m_rebindActive = true; strncpy_s(m_rebindAxis, axisName, sizeof(m_rebindAxis)-1); m_rebindPositive = false; }
+                };
+                drawRebind("MoveForward");
+                drawRebind("MoveRight");
+                drawRebind("MoveUp");
+                if (m_rebindActive)
+                {
+                    ImGui::Text("Press a key to bind %s %s", m_rebindAxis, m_rebindPositive?"(+)":"(-)");
+                    // poll keys 32..348 (GLFW_KEY_LAST)
+                    for (int k = 32; k <= 348; ++k)
+                    {
+                        if (m_input->isKeyPressed(k))
+                        {
+                            m_inputMap->setAxisKey(m_rebindAxis, m_rebindPositive, k);
+                            m_rebindActive = false;
+                            break;
+                        }
+                    }
+                }
                 ImGui::Text("Shader Reloader");
                 ImGui::InputText("VS Path", m_vsPath, sizeof(m_vsPath));
                 ImGui::InputText("FS Path", m_fsPath, sizeof(m_fsPath));
@@ -423,7 +454,7 @@ namespace engine
             float dt = m_time->tick();
             double mdx, mdy; m_input->getCursorDelta(mdx, mdy);
             double sdx, sdy; m_input->getScrollDelta(sdx, sdy);
-            const float mouseSensitivity = 0.1f;
+            const float mouseSensitivity = m_mouseSensitivity;
             if (m_orbitMode)
             {
                 static float orbitDistance = 5.0f;
@@ -451,7 +482,7 @@ namespace engine
                     m_camera->addYawPitch((float)(mdx * mouseSensitivity), (float)(-mdy * mouseSensitivity));
                 }
                 glm::vec3 move(0.0f);
-                const float speed = 3.0f;
+                const float speed = m_cameraSpeed;
                 auto axis = [&](const char* name) {
                     AxisBinding a = m_inputMap->axis(name);
                     float v = 0.0f;

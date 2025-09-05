@@ -77,6 +77,12 @@ namespace engine
         float m_skyTop[3] = {0.2f, 0.4f, 0.8f};
         float m_skyBottom[3] = {0.9f, 0.9f, 1.0f};
         bool m_orbitMode = false;
+        float m_cameraSpeed = 3.0f;
+        float m_mouseSensitivity = 0.1f;
+        // Rebind state
+        bool m_rebindActive = false;
+        char m_rebindAxis[32] = "";
+        bool m_rebindPositive = true;
     };
 }
 
