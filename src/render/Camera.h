@@ -14,6 +14,7 @@ namespace engine
 
         const glm::mat4& projection() const { return m_proj; }
         const glm::mat4& view() const { return m_view; }
+        const glm::vec3& position() const { return m_position; }
 
         // Controls
         void setPosition(const glm::vec3& p) { m_position = p; recalcViewFromAngles(); }

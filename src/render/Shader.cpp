@@ -82,6 +82,18 @@ namespace engine
         int loc = glGetUniformLocation(m_program, name);
         if (loc != -1) glUniform3f(loc, x, y, z);
     }
+
+    void Shader::setMat3(const char* name, const float* value) const
+    {
+        int loc = glGetUniformLocation(m_program, name);
+        if (loc != -1) glUniformMatrix3fv(loc, 1, GL_FALSE, value);
+    }
+
+    void Shader::setFloat(const char* name, float v) const
+    {
+        int loc = glGetUniformLocation(m_program, name);
+        if (loc != -1) glUniform1f(loc, v);
+    }
 }
 
 

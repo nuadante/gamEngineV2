@@ -16,7 +16,6 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include "core/Time.h"
-\
 
 namespace engine
 {
@@ -73,25 +72,46 @@ namespace engine
         int fbw, fbh; glfwGetFramebufferSize(m_window->getNativeHandle(), &fbw, &fbh);
         Renderer::initialize();
 
-        // Create shader
+        // Create shader (Phong)
         m_shader = std::make_unique<Shader>();
         const char* vs = R"GLSL(
             #version 330 core
             layout (location = 0) in vec3 aPos;
             layout (location = 1) in vec3 aNormal;
             layout (location = 2) in vec2 aUV;
+            uniform mat4 u_Model;
             uniform mat4 u_MVP;
+            uniform mat3 u_NormalMatrix;
+            out vec3 vNormal;
+            out vec3 vWorldPos;
             void main()
             {
+                vec4 worldPos = u_Model * vec4(aPos, 1.0);
+                vWorldPos = worldPos.xyz;
+                vNormal = normalize(u_NormalMatrix * aNormal);
                 gl_Position = u_MVP * vec4(aPos, 1.0);
             }
         )GLSL";
         const char* fs = R"GLSL(
             #version 330 core
             out vec4 FragColor;
+            in vec3 vNormal;
+            in vec3 vWorldPos;
+            uniform vec3 u_CameraPos;
+            uniform vec3 u_LightPos;
+            uniform vec3 u_LightColor;
+            uniform vec3 u_Albedo;
+            uniform float u_Shininess;
             void main()
             {
-                FragColor = vec4(1.0, 0.7, 0.2, 1.0);
+                vec3 N = normalize(vNormal);
+                vec3 L = normalize(u_LightPos - vWorldPos);
+                vec3 V = normalize(u_CameraPos - vWorldPos);
+                vec3 H = normalize(L + V);
+                float diff = max(dot(N, L), 0.0);
+                float spec = pow(max(dot(N, H), 0.0), u_Shininess);
+                vec3 color = u_Albedo * (0.1 + diff) + u_LightColor * spec;
+                FragColor = vec4(color, 1.0);
             }
         )GLSL";
         if (!m_shader->compileFromSource(vs, fs))
@@ -142,7 +162,6 @@ namespace engine
                 ImGui::Checkbox("Demo Pencere", &m_showDemo);
                 ImGui::Checkbox("Başka Pencere", &m_showAnother);
                 ImGui::ColorEdit3("clear color", (float*)&m_clearColor);
-                ImGui::Text("Uygulama %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
                 ImGui::End();
             }
 
@@ -178,14 +197,23 @@ namespace engine
             if (m_input->isKeyPressed(GLFW_KEY_Q)) move.y -= speed * dt;
             if (move.x != 0 || move.y != 0 || move.z != 0) m_camera->moveLocal(move);
 
-            // Draw cube
+            // Draw cube with Phong lighting
             static float angle = 0.0f;
             angle += dt;
             glm::mat4 model(1.0f);
             model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
             glm::mat4 mvp = m_camera->projection() * m_camera->view() * model;
+            glm::mat3 normalMat = glm::mat3(glm::transpose(glm::inverse(model)));
+
             m_shader->bind();
             m_shader->setMat4("u_MVP", &mvp[0][0]);
+            m_shader->setMat4("u_Model", &model[0][0]);
+            m_shader->setMat3("u_NormalMatrix", &normalMat[0][0]);
+            m_shader->setVec3("u_CameraPos", m_camera->position().x, m_camera->position().y, m_camera->position().z);
+            m_shader->setVec3("u_LightPos", 3.0f, 3.0f, 3.0f);
+            m_shader->setVec3("u_LightColor", 1.0f, 1.0f, 1.0f);
+            m_shader->setVec3("u_Albedo", 1.0f, 0.7f, 0.2f);
+            m_shader->setFloat("u_Shininess", 64.0f);
             m_cube->draw();
             m_shader->unbind();
 
