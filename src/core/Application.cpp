@@ -15,6 +15,7 @@
 #include "render/Camera.h"
 #include "render/Texture2D.h"
 #include "render/ShadowMap.h"
+#include "render/Skybox.h"
 #include "scene/Scene.h"
 #include "scene/Transform.h"
 #include "core/ResourceManager.h"
@@ -195,6 +196,14 @@ namespace engine
             return false;
         }
 
+        // Skybox
+        m_skybox = std::make_unique<Skybox>();
+        if (!m_skybox->initialize())
+        {
+            std::cerr << "[Skybox] init failed" << std::endl;
+            return false;
+        }
+
         // Scene setup
         m_scene = std::make_unique<Scene>();
         // Create multiple entities
@@ -259,6 +268,10 @@ namespace engine
                 ImGui::Text("Shadows");
                 ImGui::Checkbox("Enable Shadows", &m_shadowsEnabled);
                 ImGui::SliderFloat("Bias", &m_shadowBias, 0.0001f, 0.01f, "%.5f");
+                ImGui::Separator();
+                ImGui::Text("Skybox");
+                ImGui::ColorEdit3("Top", m_skyTop);
+                ImGui::ColorEdit3("Bottom", m_skyBottom);
                 ImGui::Text("Shader Reloader");
                 ImGui::InputText("VS Path", m_vsPath, sizeof(m_vsPath));
                 ImGui::InputText("FS Path", m_fsPath, sizeof(m_fsPath));
@@ -466,6 +479,9 @@ namespace engine
                 e.mesh->draw();
                 e.shader->unbind();
             }
+
+            // Draw skybox last
+            m_skybox->draw(m_camera->projection(), m_camera->view(), {m_skyTop[0], m_skyTop[1], m_skyTop[2]}, {m_skyBottom[0], m_skyBottom[1], m_skyBottom[2]});
 
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
