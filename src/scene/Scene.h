@@ -18,6 +18,10 @@ namespace engine
         Mesh* mesh = nullptr;
         Shader* shader = nullptr;
         Texture2D* albedoTex = nullptr; // optional
+        // per-entity material
+        float albedo[3] = {1.0f, 0.7f, 0.2f};
+        float shininess = 64.0f;
+        bool useTexture = true;
     };
 
     class Scene

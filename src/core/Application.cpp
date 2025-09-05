@@ -249,6 +249,11 @@ namespace engine
                         ImGui::DragFloat3("Position", &t.position.x, 0.01f);
                         ImGui::DragFloat3("Rotation (rad)", &t.rotationEuler.x, 0.01f);
                         ImGui::DragFloat3("Scale", &t.scale.x, 0.01f, 0.01f, 100.0f);
+                        ImGui::Separator();
+                        ImGui::Text("Material");
+                        ImGui::ColorEdit3("Albedo", ent.albedo);
+                        ImGui::SliderFloat("Shininess", &ent.shininess, 1.0f, 256.0f);
+                        ImGui::Checkbox("Use Texture (entity)", &ent.useTexture);
                     }
                 }
                 ImGui::End();
@@ -310,9 +315,9 @@ namespace engine
                 e.shader->setVec3("u_CameraPos", m_camera->position().x, m_camera->position().y, m_camera->position().z);
                 e.shader->setVec3("u_LightPos", m_lightPos[0], m_lightPos[1], m_lightPos[2]);
                 e.shader->setVec3("u_LightColor", m_lightColor[0], m_lightColor[1], m_lightColor[2]);
-                e.shader->setVec3("u_Albedo", m_albedo[0], m_albedo[1], m_albedo[2]);
-                e.shader->setFloat("u_Shininess", m_shininess);
-                if (m_useTexture && e.albedoTex)
+                e.shader->setVec3("u_Albedo", e.albedo[0], e.albedo[1], e.albedo[2]);
+                e.shader->setFloat("u_Shininess", e.shininess);
+                if (e.useTexture && e.albedoTex)
                 {
                     e.shader->setInt("u_UseTexture", 1);
                     e.shader->setInt("u_AlbedoTex", 0);
