@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <vector>
+#include <string>
 
 namespace engine
 {
@@ -13,6 +14,7 @@ namespace engine
 
         bool createRGBA8(int width, int height, const std::vector<uint8_t>& pixels);
         bool createCheckerboard(int width, int height, int tileSize);
+        bool loadFromFile(const std::string& path, bool flipY = true);
         void bind(int slot) const;
         void destroy();
 

@@ -9,6 +9,7 @@ find_package(imgui REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(glad REQUIRED)
 find_package(glm REQUIRED)
+find_package(stb REQUIRED)
 
 # Create executable
 add_executable(${PROJECT_NAME}
@@ -29,6 +30,7 @@ target_link_libraries(${PROJECT_NAME}
     glfw
     glad::glad
     glm::glm
+    stb::stb
 )
 
 # Include directories

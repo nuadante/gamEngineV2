@@ -48,6 +48,7 @@ namespace engine
         float m_albedo[3] = { 1.0f, 0.7f, 0.2f };
         float m_shininess = 64.0f;
         bool m_useTexture = true;
+        char m_texPath[260] = "";
     };
 }
 

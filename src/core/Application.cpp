@@ -182,6 +182,14 @@ namespace engine
                 ImGui::ColorEdit3("Albedo", m_albedo);
                 ImGui::SliderFloat("Shininess", &m_shininess, 1.0f, 256.0f);
                 ImGui::Checkbox("Use Texture", &m_useTexture);
+                ImGui::InputText("Tex Path", m_texPath, sizeof(m_texPath));
+                if (ImGui::Button("Load Texture"))
+                {
+                    if (m_texture && m_texPath[0] != '\0')
+                    {
+                        m_texture->loadFromFile(m_texPath, true);
+                    }
+                }
                 ImGui::End();
             }
 
@@ -237,13 +245,14 @@ namespace engine
             // texture bindings
             if (m_useTexture)
             {
-                m_shader->setFloat("u_UseTexture", 1.0f);
+                m_shader->setInt("u_UseTexture", 1);
+                m_shader->setInt("u_AlbedoTex", 0);
                 m_texture->bind(0);
                 // sampler assumed at location 0 by default
             }
             else
             {
-                m_shader->setFloat("u_UseTexture", 0.0f);
+                m_shader->setInt("u_UseTexture", 0);
             }
             m_cube->draw();
             m_shader->unbind();

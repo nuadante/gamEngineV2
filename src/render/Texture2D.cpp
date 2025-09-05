@@ -1,6 +1,9 @@
 #include "render/Texture2D.h"
 
 #include <glad/glad.h>
+#include <cstring>
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 namespace engine
 {
@@ -55,6 +58,18 @@ namespace engine
             glDeleteTextures(1, &m_tex);
             m_tex = 0;
         }
+    }
+
+    bool Texture2D::loadFromFile(const std::string& path, bool flipY)
+    {
+        stbi_set_flip_vertically_on_load(flipY ? 1 : 0);
+        int w, h, n;
+        unsigned char* data = stbi_load(path.c_str(), &w, &h, &n, 4);
+        if (!data) return false;
+        std::vector<uint8_t> pixels(static_cast<size_t>(w) * h * 4);
+        memcpy(pixels.data(), data, pixels.size());
+        stbi_image_free(data);
+        return createRGBA8(w, h, pixels);
     }
 }
 
