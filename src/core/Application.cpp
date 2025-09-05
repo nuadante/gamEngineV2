@@ -15,6 +15,7 @@
 #include "render/Camera.h"
 #include "render/Texture2D.h"
 #include "render/ShadowMap.h"
+#include "render/PointShadowMap.h"
 #include "render/Skybox.h"
 #include "input/InputMap.h"
 #include "scene/SceneSerializer.h"
@@ -273,6 +274,13 @@ namespace engine
             uniform vec3 u_CameraPos;
             uniform vec3 u_LightPos;
             uniform vec3 u_LightColor;
+            // point light
+            uniform vec3 u_PointLightPos;
+            uniform vec3 u_PointLightColor;
+            uniform float u_PointShadowFar;
+            uniform float u_PointShadowBias;
+            uniform bool u_PointShadowsEnabled;
+            uniform samplerCube u_PointShadowMap;
             uniform vec3 u_Albedo;
             uniform float u_Shininess;
             uniform bool u_UseTexture;
@@ -282,6 +290,13 @@ namespace engine
             uniform mat4 u_LightVP;
             uniform sampler2D u_ShadowMap;
             uniform float u_ShadowBias;
+            float samplePointShadow(vec3 worldPos)
+            {
+                vec3 L = worldPos - u_PointLightPos;
+                float current = length(L);
+                float closest = texture(u_PointShadowMap, normalize(L)).r;
+                return (current - u_PointShadowBias > closest) ? 1.0 : 0.0;
+            }
             void main()
             {
                 vec3 N = normalize(vNormal);
@@ -305,6 +320,15 @@ namespace engine
                     }
                 }
                 vec3 color = baseColor * (0.1 + (1.0 - shadow) * diff) + u_LightColor * (1.0 - shadow) * spec;
+                // point light
+                vec3 Lp = normalize(u_PointLightPos - vWorldPos);
+                vec3 Hp = normalize(Lp + V);
+                float diffP = max(dot(N, Lp), 0.0);
+                float specP = pow(max(dot(N, Hp), 0.0), u_Shininess);
+                float shadowP = 0.0;
+                if (u_PointShadowsEnabled)
+                    shadowP = samplePointShadow(vWorldPos);
+                color += baseColor * (1.0 - shadowP) * diffP + u_PointLightColor * (1.0 - shadowP) * specP;
                 FragColor = vec4(color, 1.0);
             }
         )GLSL";
@@ -333,6 +357,37 @@ namespace engine
             std::cerr << "[DepthShader] compile failed" << std::endl;
             return false;
         }
+        // Point light depth shader (distance to light in color)
+        const char* pvs = R"GLSL(
+            #version 330 core
+            layout (location = 0) in vec3 aPos;
+            uniform mat4 u_Model;
+            uniform mat4 u_View;
+            uniform mat4 u_Proj;
+            out vec3 vWorldPos;
+            void main()
+            {
+                vec4 wp = u_Model * vec4(aPos, 1.0);
+                vWorldPos = wp.xyz;
+                gl_Position = u_Proj * u_View * wp;
+            }
+        )GLSL";
+        const char* pfs = R"GLSL(
+            #version 330 core
+            in vec3 vWorldPos;
+            out float FragDist;
+            uniform vec3 u_LightPos;
+            void main()
+            {
+                FragDist = length(vWorldPos - u_LightPos);
+            }
+        )GLSL";
+        m_pointDepthShader = std::make_unique<Shader>();
+        if (!m_pointDepthShader->compileFromSource(pvs, pfs))
+        {
+            std::cerr << "[PointDepthShader] compile failed" << std::endl;
+            return false;
+        }
 
         // Cube mesh
         m_cube = std::unique_ptr<Mesh>(m_resources->getCube("unit_cube"));
@@ -357,6 +412,8 @@ namespace engine
             std::cerr << "[ShadowMap] create failed" << std::endl;
             return false;
         }
+        // Point shadow map (deferred create on first enable)
+        m_pointShadowMap = std::make_unique<PointShadowMap>();
 
         // Skybox
         m_skybox = std::make_unique<Skybox>();
@@ -460,6 +517,23 @@ namespace engine
                 ImGui::Text("Shadows");
                 ImGui::Checkbox("Enable Shadows", &m_shadowsEnabled);
                 ImGui::SliderFloat("Bias", &m_shadowBias, 0.0001f, 0.01f, "%.5f");
+                ImGui::Separator();
+                ImGui::Text("Point Light");
+                ImGui::Checkbox("Enable Point Shadow", &m_pointShadowEnabled);
+                ImGui::DragFloat3("Point Pos", m_pointLightPos, 0.1f);
+                ImGui::ColorEdit3("Point Color", m_pointLightColor);
+                ImGui::SliderFloat("Point Far", &m_pointShadowFar, 1.0f, 100.0f);
+                ImGui::SliderFloat("Point Bias", &m_pointShadowBias, 0.0001f, 0.05f, "%.4f");
+                ImGui::Separator();
+                ImGui::Text("Spot Light");
+                ImGui::Checkbox("Enable Spot", &m_spotEnabled);
+                ImGui::DragFloat3("Spot Pos", m_spotPos, 0.1f);
+                ImGui::DragFloat3("Spot Dir", m_spotDir, 0.01f);
+                ImGui::ColorEdit3("Spot Color", m_spotColor);
+                ImGui::SliderFloat("Inner (deg)", &m_spotInner, 1.0f, 89.0f);
+                ImGui::SliderFloat("Outer (deg)", &m_spotOuter, 1.0f, 89.0f);
+                ImGui::SliderFloat("Spot Far", &m_spotFar, 1.0f, 100.0f);
+                ImGui::SliderFloat("Spot Bias", &m_spotBias, 0.0001f, 0.01f, "%.4f");
                 ImGui::Separator();
                 ImGui::Text("Skybox");
                 ImGui::ColorEdit3("Top", m_skyTop);
@@ -796,6 +870,59 @@ namespace engine
                 m_shadowMap->end(display_w, display_h);
             }
 
+            // Point shadow pass: render 6 faces storing distance in cubemap
+            if (m_pointShadowEnabled)
+            {
+                if (m_pointShadowMap->size() != m_pointShadowSize)
+                {
+                    m_pointShadowMap->destroy();
+                    m_pointShadowMap->create(m_pointShadowSize);
+                }
+                glm::vec3 lp(m_pointLightPos[0], m_pointLightPos[1], m_pointLightPos[2]);
+                glm::mat4 proj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, m_pointShadowFar);
+                glm::vec3 dirs[6] = { {1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1} };
+                glm::vec3 ups[6]  = { {0,-1,0},{0,-1,0},{0,0,1},{0,0,-1},{0,-1,0},{0,-1,0} };
+                for (int f = 0; f < 6; ++f)
+                {
+                    m_pointShadowMap->beginFace(f);
+                    glm::mat4 view = glm::lookAt(lp, lp + dirs[f], ups[f]);
+                    for (const auto& e : m_scene->getEntities())
+                    {
+                        glm::mat4 model = e.transform.modelMatrix();
+                        m_pointDepthShader->bind();
+                        m_pointDepthShader->setMat4("u_Proj", &proj[0][0]);
+                        m_pointDepthShader->setMat4("u_View", &view[0][0]);
+                        m_pointDepthShader->setMat4("u_Model", &model[0][0]);
+                        m_pointDepthShader->setVec3("u_LightPos", lp.x, lp.y, lp.z);
+                        e.mesh->draw();
+                    }
+                    m_pointDepthShader->unbind();
+                }
+                m_pointShadowMap->end(display_w, display_h);
+            }
+
+            // Spot shadow pass: reuse 2D ShadowMap with perspective proj
+            glm::mat4 spotView = glm::lookAt(
+                glm::vec3(m_spotPos[0], m_spotPos[1], m_spotPos[2]),
+                glm::vec3(m_spotPos[0], m_spotPos[1], m_spotPos[2]) + glm::normalize(glm::vec3(m_spotDir[0], m_spotDir[1], m_spotDir[2])),
+                glm::vec3(0,1,0));
+            glm::mat4 spotProj = glm::perspective(glm::radians(m_spotOuter * 2.0f), 1.0f, m_spotNear, m_spotFar);
+            glm::mat4 spotVP = spotProj * spotView;
+            if (m_spotEnabled)
+            {
+                m_shadowMap->begin();
+                for (const auto& e : m_scene->getEntities())
+                {
+                    glm::mat4 model = e.transform.modelMatrix();
+                    m_depthShader->bind();
+                    m_depthShader->setMat4("u_LightVP", &spotVP[0][0]);
+                    m_depthShader->setMat4("u_Model", &model[0][0]);
+                    e.mesh->draw();
+                }
+                m_depthShader->unbind();
+                m_shadowMap->end(display_w, display_h);
+            }
+
             // Render scene
             for (const auto& e : m_scene->getEntities())
             {
@@ -828,6 +955,24 @@ namespace engine
                 e.shader->setFloat("u_ShadowBias", m_shadowBias);
                 m_shadowMap->bindDepthTexture(1);
                 e.shader->setInt("u_ShadowMap", 1);
+                // spot
+                e.shader->setInt("u_SpotEnabled", m_spotEnabled ? 1 : 0);
+                e.shader->setVec3("u_SpotPos", m_spotPos[0], m_spotPos[1], m_spotPos[2]);
+                glm::vec3 sdir = glm::normalize(glm::vec3(m_spotDir[0], m_spotDir[1], m_spotDir[2]));
+                e.shader->setVec3("u_SpotDir", sdir.x, sdir.y, sdir.z);
+                e.shader->setVec3("u_SpotColor", m_spotColor[0], m_spotColor[1], m_spotColor[2]);
+                e.shader->setFloat("u_SpotCosInner", cos(glm::radians(m_spotInner)));
+                e.shader->setFloat("u_SpotCosOuter", cos(glm::radians(m_spotOuter)));
+                e.shader->setMat4("u_SpotVP", &spotVP[0][0]);
+                e.shader->setFloat("u_SpotBias", m_spotBias);
+                // point light uniforms (sampling to be added in shader later)
+                e.shader->setVec3("u_PointLightPos", m_pointLightPos[0], m_pointLightPos[1], m_pointLightPos[2]);
+                e.shader->setVec3("u_PointLightColor", m_pointLightColor[0], m_pointLightColor[1], m_pointLightColor[2]);
+                e.shader->setFloat("u_PointShadowFar", m_pointShadowFar);
+                e.shader->setFloat("u_PointShadowBias", m_pointShadowBias);
+                e.shader->setInt("u_PointShadowsEnabled", m_pointShadowEnabled ? 1 : 0);
+                m_pointShadowMap->bindCubemap(2);
+                e.shader->setInt("u_PointShadowMap", 2);
                 e.mesh->draw();
                 e.shader->unbind();
             }

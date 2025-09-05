@@ -18,6 +18,7 @@ namespace engine
     class Transform;
     class ResourceManager;
     class ShadowMap;
+    class PointShadowMap;
     class Skybox;
     class InputMap;
     class Physics;
@@ -57,6 +58,8 @@ namespace engine
         std::unique_ptr<ResourceManager> m_resources;
         std::unique_ptr<ShadowMap> m_shadowMap;
         std::unique_ptr<Shader> m_depthShader;
+        std::unique_ptr<PointShadowMap> m_pointShadowMap;
+        std::unique_ptr<Shader> m_pointDepthShader;
         std::unique_ptr<Skybox> m_skybox;
         std::unique_ptr<InputMap> m_inputMap;
         std::unique_ptr<Physics> m_physics;
@@ -82,6 +85,23 @@ namespace engine
         float m_shadowOrthoSize = 10.0f;
         float m_shadowNear = 0.1f;
         float m_shadowFar = 50.0f;
+        // Point shadow
+        bool m_pointShadowEnabled = false;
+        float m_pointLightPos[3] = { 2.0f, 4.0f, 2.0f };
+        float m_pointLightColor[3] = { 1.0f, 1.0f, 1.0f };
+        float m_pointShadowBias = 0.02f;
+        float m_pointShadowFar = 25.0f;
+        int m_pointShadowSize = 512;
+        // Spot light + shadow
+        bool m_spotEnabled = false;
+        float m_spotPos[3] = { 3.0f, 5.0f, 3.0f };
+        float m_spotDir[3] = { -1.0f, -1.0f, -1.0f };
+        float m_spotColor[3] = { 1.0f, 1.0f, 1.0f };
+        float m_spotInner = 15.0f; // degrees
+        float m_spotOuter = 25.0f; // degrees
+        float m_spotNear = 0.1f;
+        float m_spotFar = 40.0f;
+        float m_spotBias = 0.002f;
         // Sky
         float m_skyTop[3] = {0.2f, 0.4f, 0.8f};
         float m_skyBottom[3] = {0.9f, 0.9f, 1.0f};
