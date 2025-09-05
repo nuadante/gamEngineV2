@@ -22,6 +22,16 @@ namespace engine
         float albedo[3] = {1.0f, 0.7f, 0.2f};
         float shininess = 64.0f;
         bool useTexture = true;
+        // physics
+        bool hasRigidBody = false;
+        bool isKinematic = false; // if dynamic and kinematic
+        bool isStatic = false;    // static actor
+        float mass = 1.0f;
+        float friction = 0.5f;
+        float restitution = 0.1f;
+        // box collider half-extents
+        float colliderHalf[3] = {0.5f, 0.5f, 0.5f};
+        // runtime: not serialized (PhysX actor handle managed elsewhere)
     };
 
     class Scene

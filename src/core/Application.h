@@ -37,6 +37,12 @@ namespace engine
         bool initializeGLAD();
         bool initializeImGui();
         void shutdownImGui();
+        // physics helpers
+        void createPhysicsForEntity(int entityIndex);
+        void destroyPhysicsForEntity(int entityIndex);
+        void rebuildPhysicsFromScene();
+        // picking helpers
+        void handlePicking();
 
     private:
         std::unique_ptr<Window> m_window;
@@ -94,6 +100,12 @@ namespace engine
         struct PhysBinding { void* actor; int entityIndex; };
         std::vector<PhysBinding> m_physBindings;
         bool m_drawColliders = true;
+        bool m_enablePicking = true;
+        bool m_pushOnPick = true;
+        float m_pushStrength = 10.0f;
+        bool m_pickClickConsumed = false;
+        bool m_useCpuPickFallback = true;
+        bool m_autoCreateRigidOnPush = true;
     };
 }
 

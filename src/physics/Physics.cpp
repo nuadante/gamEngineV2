@@ -70,6 +70,12 @@ namespace engine
         return m_defaultMaterial;
     }
 
+    PxMaterial* Physics::createMaterial(float staticFriction, float dynamicFriction, float restitution)
+    {
+        if (!m_physics) return nullptr;
+        return m_physics->createMaterial(staticFriction, dynamicFriction, restitution);
+    }
+
     PxRigidStatic* Physics::addGroundPlane()
     {
         if (!m_scene || !m_physics || !m_defaultMaterial) return nullptr;

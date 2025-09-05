@@ -31,6 +31,157 @@
 
 namespace engine
 {
+    static glm::vec3 screenToRayDir(double mouseX, double mouseY, int fbWidth, int fbHeight, const glm::mat4& proj, const glm::mat4& view)
+    {
+        // NDC
+        float x = (2.0f * (float)mouseX) / (float)fbWidth - 1.0f;
+        float y = 1.0f - (2.0f * (float)mouseY) / (float)fbHeight;
+        glm::vec4 rayClip(x, y, -1.0f, 1.0f);
+        glm::mat4 invProj = glm::inverse(proj);
+        glm::vec4 rayEye = invProj * rayClip;
+        rayEye = glm::vec4(rayEye.x, rayEye.y, -1.0f, 0.0f);
+        glm::mat4 invView = glm::inverse(view);
+        glm::vec4 rayWorld = invView * rayEye;
+        return glm::normalize(glm::vec3(rayWorld));
+    }
+
+    void Application::handlePicking()
+    {
+        if (!m_enablePicking) return;
+        if (!m_input) return;
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.WantCaptureMouse) { m_pickClickConsumed = false; return; }
+        if (!m_input->isMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT)) { m_pickClickConsumed = false; return; }
+        if (m_pickClickConsumed) return;
+        m_pickClickConsumed = true;
+
+        // get mouse pos and framebuffer size
+        double mx, my; m_input->getCursorPosition(mx, my);
+        int fbw, fbh; glfwGetFramebufferSize(m_window->getNativeHandle(), &fbw, &fbh);
+        int winW, winH; glfwGetWindowSize(m_window->getNativeHandle(), &winW, &winH);
+        // convert window coords to framebuffer coords (DPI scaling)
+        double fx = mx * (winW > 0 ? (double)fbw / (double)winW : 1.0);
+        double fy = my * (winH > 0 ? (double)fbh / (double)winH : 1.0);
+        glm::vec3 rayDir = screenToRayDir(fx, fy, fbw, fbh, m_camera->projection(), m_camera->view());
+        glm::vec3 rayOrigin = m_camera->position();
+
+        // PhysX raycast
+        physx::PxVec3 origin(rayOrigin.x, rayOrigin.y, rayOrigin.z);
+        physx::PxVec3 unitDir(rayDir.x, rayDir.y, rayDir.z);
+        float maxDist = 1000.0f;
+        physx::PxRaycastBuffer hit;
+        physx::PxScene* scene = m_physics ? m_physics->scene() : nullptr;
+        if (!scene) return;
+        bool status = scene->raycast(origin, unitDir, maxDist, hit);
+        if (!status || !hit.hasBlock)
+        {
+            // Fallback: if push is requested and no rigid exists, find closest entity under ray by AABB from mesh
+            if (!m_useCpuPickFallback) return;
+            int best = -1; float bestT = 1e9f;
+            for (int i = 0; i < (int)m_scene->entities().size(); ++i)
+            {
+                auto& ent = m_scene->entities()[i];
+                if (!ent.mesh) continue;
+                // approximate with unit cube bounds scaled by transform
+                glm::vec3 minB = ent.transform.position - ent.transform.scale * 0.5f;
+                glm::vec3 maxB = ent.transform.position + ent.transform.scale * 0.5f;
+                // ray-AABB intersect
+                glm::vec3 invD = 1.0f / glm::vec3(rayDir);
+                glm::vec3 t0 = (minB - rayOrigin) * invD;
+                glm::vec3 t1 = (maxB - rayOrigin) * invD;
+                glm::vec3 tmin = glm::min(t0, t1);
+                glm::vec3 tmax = glm::max(t0, t1);
+                float tnear = std::max(std::max(tmin.x, tmin.y), tmin.z);
+                float tfar  = std::min(std::min(tmax.x, tmax.y), tmax.z);
+                if (tnear <= tfar && tfar > 0.0f && tnear < bestT)
+                {
+                    bestT = tnear; best = i;
+                }
+            }
+            if (best >= 0)
+            {
+                m_scene->setSelectedIndex(best);
+                if (m_pushOnPick && m_autoCreateRigidOnPush)
+                {
+                    auto& e = m_scene->entities()[best];
+                    e.hasRigidBody = true; e.isStatic = false;
+                    createPhysicsForEntity(best);
+                    // apply impulse next frame on created body via PhysX raycast retry
+                }
+            }
+            return;
+        }
+
+        physx::PxRigidActor* actor = hit.block.actor;
+        if (!actor) return;
+        // find binding
+        int entityIndex = -1;
+        for (const auto& b : m_physBindings)
+        {
+            if ((physx::PxRigidActor*)b.actor == actor)
+            {
+                entityIndex = b.entityIndex;
+                break;
+            }
+        }
+        if (entityIndex >= 0) m_scene->setSelectedIndex(entityIndex);
+
+        if (m_pushOnPick)
+        {
+            physx::PxRigidDynamic* dyn = actor->is<physx::PxRigidDynamic>();
+            if (dyn)
+            {
+                physx::PxVec3 impulse = unitDir * m_pushStrength;
+                dyn->addForce(impulse, physx::PxForceMode::eIMPULSE);
+                dyn->wakeUp();
+            }
+        }
+    }
+    void Application::createPhysicsForEntity(int entityIndex)
+    {
+        if (!m_physics) return;
+        if (entityIndex < 0 || entityIndex >= (int)m_scene->entities().size()) return;
+        auto& e = m_scene->entities()[entityIndex];
+        // remove previous binding for this entity if exists
+        for (auto it = m_physBindings.begin(); it != m_physBindings.end(); )
+        {
+            if (it->entityIndex == entityIndex) it = m_physBindings.erase(it); else ++it;
+        }
+        if (!e.hasRigidBody) return;
+        // Create only box dynamic for now
+        float hx = e.colliderHalf[0], hy = e.colliderHalf[1], hz = e.colliderHalf[2];
+        void* actor = nullptr;
+        if (e.isStatic)
+        {
+            // approximate static by very heavy dynamic disabled: better to add API for static shapes, skipped for brevity
+            actor = m_physics->addDynamicBox(e.transform.position.x, e.transform.position.y, e.transform.position.z, hx, hy, hz, 0.0f);
+        }
+        else
+        {
+            float density = std::max(0.001f, e.mass);
+            actor = m_physics->addDynamicBox(e.transform.position.x, e.transform.position.y, e.transform.position.z, hx, hy, hz, density);
+        }
+        if (actor)
+            m_physBindings.push_back({ actor, entityIndex });
+    }
+
+    void Application::destroyPhysicsForEntity(int entityIndex)
+    {
+        for (auto it = m_physBindings.begin(); it != m_physBindings.end(); )
+        {
+            if (it->entityIndex == entityIndex)
+                it = m_physBindings.erase(it);
+            else
+                ++it;
+        }
+    }
+
+    void Application::rebuildPhysicsFromScene()
+    {
+        m_physBindings.clear();
+        for (int i = 0; i < (int)m_scene->entities().size(); ++i)
+            createPhysicsForEntity(i);
+    }
     static void glfw_error_callback(int error, const char* description)
     {
         std::cerr << "GLFW Error " << error << ": " << description << std::endl;
@@ -233,12 +384,7 @@ namespace engine
             if (m_physics->createDefaultScene(-9.81f))
             {
                 m_physics->addGroundPlane();
-                // spawn a falling box to demo and map to the first entity if exists
-                if (!m_scene->entities().empty())
-                {
-                    void* act = m_physics->addDynamicBox(0.0f, 5.0f, 0.0f, 0.5f, 0.5f, 0.5f, 1.0f);
-                    if (act) m_physBindings.push_back({ act, 0 });
-                }
+                rebuildPhysicsFromScene();
             }
         }
 
@@ -259,10 +405,12 @@ namespace engine
             if ((m_input->isKeyPressed(GLFW_KEY_LEFT_CONTROL) || m_input->isKeyPressed(GLFW_KEY_RIGHT_CONTROL)) && m_input->isKeyPressed(GLFW_KEY_S))
             {
                 SceneSerializer::save(*m_scene, "scene.json");
+                // optionally save physics-specific data is already included
             }
             if ((m_input->isKeyPressed(GLFW_KEY_LEFT_CONTROL) || m_input->isKeyPressed(GLFW_KEY_RIGHT_CONTROL)) && m_input->isKeyPressed(GLFW_KEY_O))
             {
                 SceneSerializer::load(*m_scene, "scene.json");
+                rebuildPhysicsFromScene();
             }
 
             ImGui_ImplOpenGL3_NewFrame();
@@ -304,6 +452,10 @@ namespace engine
                 ImGui::Checkbox("Wireframe", &m_wireframe);
                 ImGui::Checkbox("VSync", &m_vsync);
                 ImGui::Checkbox("Draw Colliders", &m_drawColliders);
+                ImGui::Checkbox("Enable Picking (LMB)", &m_enablePicking);
+                ImGui::Checkbox("Push On Pick", &m_pushOnPick);
+                ImGui::Checkbox("Auto Create Rigid On Push", &m_autoCreateRigidOnPush);
+                ImGui::SliderFloat("Push Strength", &m_pushStrength, 0.0f, 200.0f);
                 ImGui::Separator();
                 ImGui::Text("Shadows");
                 ImGui::Checkbox("Enable Shadows", &m_shadowsEnabled);
@@ -400,7 +552,14 @@ namespace engine
                     if (ImGui::Button("Delete Selected"))
                     {
                         int sel = m_scene->selectedIndex();
-                        if (sel >= 0) m_scene->removeEntity(sel);
+                        if (sel >= 0)
+                        {
+                            destroyPhysicsForEntity(sel);
+                            m_scene->removeEntity(sel);
+                            // reindex bindings > selected index shift
+                            for (auto& b : m_physBindings)
+                                if (b.entityIndex > sel) b.entityIndex--;
+                        }
                     }
                     ImGui::SameLine();
                     if (ImGui::Button("Spawn Phys Box"))
@@ -422,6 +581,12 @@ namespace engine
                         if (ImGui::Selectable(es[i].name.c_str(), selected))
                         {
                             m_scene->setSelectedIndex(i);
+                        }
+                        if (selected)
+                        {
+                            ImGui::SameLine();
+                            if (ImGui::Button("Apply Physics##sel"))
+                                createPhysicsForEntity(i);
                         }
                     }
                 }
@@ -456,6 +621,26 @@ namespace engine
                         ImGui::ColorEdit3("Albedo", ent.albedo);
                         ImGui::SliderFloat("Shininess", &ent.shininess, 1.0f, 256.0f);
                         ImGui::Checkbox("Use Texture (entity)", &ent.useTexture);
+                        ImGui::Separator();
+                        ImGui::Text("Physics");
+                        ImGui::Checkbox("Has RigidBody", &ent.hasRigidBody);
+                        if (ent.hasRigidBody)
+                        {
+                            ImGui::Checkbox("Static", &ent.isStatic);
+                            if (!ent.isStatic)
+                            {
+                                ImGui::Checkbox("Kinematic", &ent.isKinematic);
+                                ImGui::SliderFloat("Mass", &ent.mass, 0.01f, 1000.0f);
+                            }
+                            ImGui::SliderFloat("Friction", &ent.friction, 0.0f, 1.0f);
+                            ImGui::SliderFloat("Restitution", &ent.restitution, 0.0f, 1.0f);
+                            ImGui::DragFloat3("Box Half-Extents", ent.colliderHalf, 0.01f, 0.01f, 10.0f);
+                            if (ImGui::Button("Apply Physics (Rebuild)"))
+                            {
+                                // apply to current selected entity
+                                createPhysicsForEntity(sel);
+                            }
+                        }
                         ImGui::Separator();
                         // Mesh picker
                         static int meshChoice = 0; // 0 Cube, 1 Plane
@@ -585,6 +770,7 @@ namespace engine
                     float yaw = std::atan2(siny_cosp, cosy_cosp);
                     t.rotationEuler = { pitch, yaw, roll };
                 }
+                handlePicking();
             }
 
             // Shadow pass (directional light with orthographic proj)
@@ -735,6 +921,9 @@ namespace engine
     {
         shutdownImGui();
         Renderer::shutdown();
+        // release physics actors first
+        for (auto& b : m_physBindings) b.actor = nullptr;
+        m_physBindings.clear();
         m_cube.reset();
         m_shader.reset();
         m_camera.reset();

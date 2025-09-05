@@ -37,6 +37,8 @@ namespace engine
         physx::PxRigidDynamic* addDynamicBox(float x, float y, float z, float hx, float hy, float hz, float density);
 
         physx::PxScene* scene() const { return m_scene; }
+        physx::PxPhysics* sdk() const { return m_physics; }
+        physx::PxMaterial* createMaterial(float staticFriction, float dynamicFriction, float restitution);
 
     private:
         physx::PxFoundation* m_foundation = nullptr;

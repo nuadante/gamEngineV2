@@ -18,6 +18,14 @@ namespace engine
         j["albedo"]   = { e.albedo[0], e.albedo[1], e.albedo[2] };
         j["shininess"] = e.shininess;
         j["useTexture"] = e.useTexture;
+        // physics
+        j["hasRigidBody"] = e.hasRigidBody;
+        j["isKinematic"] = e.isKinematic;
+        j["isStatic"] = e.isStatic;
+        j["mass"] = e.mass;
+        j["friction"] = e.friction;
+        j["restitution"] = e.restitution;
+        j["colliderHalf"] = { e.colliderHalf[0], e.colliderHalf[1], e.colliderHalf[2] };
         return j;
     }
 
@@ -34,6 +42,15 @@ namespace engine
         e.albedo[0] = a[0]; e.albedo[1] = a[1]; e.albedo[2] = a[2];
         e.shininess = j.value("shininess", 64.0f);
         e.useTexture = j.value("useTexture", true);
+        // physics
+        e.hasRigidBody = j.value("hasRigidBody", false);
+        e.isKinematic = j.value("isKinematic", false);
+        e.isStatic = j.value("isStatic", false);
+        e.mass = j.value("mass", 1.0f);
+        e.friction = j.value("friction", 0.5f);
+        e.restitution = j.value("restitution", 0.1f);
+        auto ch = j.value("colliderHalf", std::vector<float>{0.5f,0.5f,0.5f});
+        if (ch.size() == 3) { const_cast<float&>(e.colliderHalf[0]) = ch[0]; const_cast<float&>(e.colliderHalf[1]) = ch[1]; const_cast<float&>(e.colliderHalf[2]) = ch[2]; }
     }
 
     bool SceneSerializer::save(const Scene& scene, const std::string& path)
