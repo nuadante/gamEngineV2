@@ -20,6 +20,7 @@ add_executable(${PROJECT_NAME}
     src/render/Mesh.cpp
     src/render/Renderer.cpp
     src/render/Camera.cpp
+    src/render/Texture2D.cpp
 )
 
 # Link libraries

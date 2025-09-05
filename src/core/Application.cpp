@@ -13,6 +13,7 @@
 #include "render/Mesh.h"
 #include "render/Renderer.h"
 #include "render/Camera.h"
+#include "render/Texture2D.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include "core/Time.h"
@@ -72,7 +73,7 @@ namespace engine
         int fbw, fbh; glfwGetFramebufferSize(m_window->getNativeHandle(), &fbw, &fbh);
         Renderer::initialize();
 
-        // Create shader (Phong)
+        // Create shader (Phong + texture toggle)
         m_shader = std::make_unique<Shader>();
         const char* vs = R"GLSL(
             #version 330 core
@@ -84,11 +85,13 @@ namespace engine
             uniform mat3 u_NormalMatrix;
             out vec3 vNormal;
             out vec3 vWorldPos;
+            out vec2 vUV;
             void main()
             {
                 vec4 worldPos = u_Model * vec4(aPos, 1.0);
                 vWorldPos = worldPos.xyz;
                 vNormal = normalize(u_NormalMatrix * aNormal);
+                vUV = aUV;
                 gl_Position = u_MVP * vec4(aPos, 1.0);
             }
         )GLSL";
@@ -97,11 +100,14 @@ namespace engine
             out vec4 FragColor;
             in vec3 vNormal;
             in vec3 vWorldPos;
+            in vec2 vUV;
             uniform vec3 u_CameraPos;
             uniform vec3 u_LightPos;
             uniform vec3 u_LightColor;
             uniform vec3 u_Albedo;
             uniform float u_Shininess;
+            uniform bool u_UseTexture;
+            uniform sampler2D u_AlbedoTex;
             void main()
             {
                 vec3 N = normalize(vNormal);
@@ -110,7 +116,8 @@ namespace engine
                 vec3 H = normalize(L + V);
                 float diff = max(dot(N, L), 0.0);
                 float spec = pow(max(dot(N, H), 0.0), u_Shininess);
-                vec3 color = u_Albedo * (0.1 + diff) + u_LightColor * spec;
+                vec3 baseColor = u_UseTexture ? texture(u_AlbedoTex, vUV).rgb : u_Albedo;
+                vec3 color = baseColor * (0.1 + diff) + u_LightColor * spec;
                 FragColor = vec4(color, 1.0);
             }
         )GLSL";
@@ -132,6 +139,10 @@ namespace engine
         // Time
         m_time = std::make_unique<Time>();
         m_time->reset();
+
+        // Texture (checkerboard)
+        m_texture = std::make_unique<Texture2D>();
+        m_texture->createCheckerboard(256, 256, 32);
 
         return true;
     }
@@ -170,6 +181,7 @@ namespace engine
                 ImGui::Text("Material");
                 ImGui::ColorEdit3("Albedo", m_albedo);
                 ImGui::SliderFloat("Shininess", &m_shininess, 1.0f, 256.0f);
+                ImGui::Checkbox("Use Texture", &m_useTexture);
                 ImGui::End();
             }
 
@@ -222,6 +234,17 @@ namespace engine
             m_shader->setVec3("u_LightColor", m_lightColor[0], m_lightColor[1], m_lightColor[2]);
             m_shader->setVec3("u_Albedo", m_albedo[0], m_albedo[1], m_albedo[2]);
             m_shader->setFloat("u_Shininess", m_shininess);
+            // texture bindings
+            if (m_useTexture)
+            {
+                m_shader->setFloat("u_UseTexture", 1.0f);
+                m_texture->bind(0);
+                // sampler assumed at location 0 by default
+            }
+            else
+            {
+                m_shader->setFloat("u_UseTexture", 0.0f);
+            }
             m_cube->draw();
             m_shader->unbind();
 

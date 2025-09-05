@@ -22,6 +22,7 @@ namespace engine
         void setVec3(const char* name, float x, float y, float z) const;
         void setMat3(const char* name, const float* value) const;
         void setFloat(const char* name, float v) const;
+        void setInt(const char* name, int v) const;
 
     private:
         unsigned int m_program = 0;

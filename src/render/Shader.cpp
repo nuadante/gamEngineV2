@@ -94,6 +94,12 @@ namespace engine
         int loc = glGetUniformLocation(m_program, name);
         if (loc != -1) glUniform1f(loc, v);
     }
+
+    void Shader::setInt(const char* name, int v) const
+    {
+        int loc = glGetUniformLocation(m_program, name);
+        if (loc != -1) glUniform1i(loc, v);
+    }
 }
 
 
