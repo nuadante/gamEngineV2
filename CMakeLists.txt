@@ -10,7 +10,12 @@ find_package(glfw3 REQUIRED)
 find_package(glad REQUIRED)
 
 # Create executable
-add_executable(${PROJECT_NAME} src/main.cpp)
+add_executable(${PROJECT_NAME}
+    src/main.cpp
+    src/core/Application.cpp
+    src/platform/Window.cpp
+    src/input/InputManager.cpp
+)
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME} 
