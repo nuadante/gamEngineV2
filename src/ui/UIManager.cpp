@@ -30,12 +30,16 @@ namespace engine
 
     void UIManager::registerPanel(const std::function<void()>& panel)
     {
-        m_panels.push_back(panel);
+        m_panels.push_back({"", panel, nullptr});
     }
 
     void UIManager::drawPanels()
     {
-        for (auto& p : m_panels) p();
+        for (auto& p : m_panels)
+        {
+            if (p.visible && !*p.visible) continue;
+            p.draw();
+        }
     }
 
     void UIManager::endFrame()
@@ -54,6 +58,11 @@ namespace engine
         ImGui_ImplGlfw_Shutdown();
         if (ImGui::GetCurrentContext())
             ImGui::DestroyContext();
+    }
+
+    void UIManager::registerPanel(const char* name, const std::function<void()>& panel, bool* visibleFlag)
+    {
+        Panel p; p.name = name ? name : std::string(); p.draw = panel; p.visible = visibleFlag; m_panels.push_back(std::move(p));
     }
 }
 

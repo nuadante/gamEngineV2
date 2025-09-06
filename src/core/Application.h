@@ -117,6 +117,17 @@ namespace engine
         ImVec4 m_clearColor = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
         bool m_showDemo = false;
         bool m_showAnother = false;
+        // UI panel toggles
+        bool m_panelGeneral = true;
+        bool m_panelLighting = true;
+        bool m_panelPost = true;
+        bool m_panelSkyIbl = true;
+        bool m_panelTerrain = false;
+        bool m_panelScripting = false;
+        bool m_panelAudio = false;
+        bool m_panelInput = false;
+        bool m_panelImport = false;
+        bool m_panelTools = false;
         // Lighting/UI parameters
         float m_lightPos[3] = { 3.0f, 3.0f, 3.0f };
         float m_lightColor[3] = { 1.0f, 1.0f, 1.0f };
