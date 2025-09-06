@@ -23,6 +23,7 @@ namespace engine
         void setMat3(const char* name, const float* value) const;
         void setFloat(const char* name, float v) const;
         void setInt(const char* name, int v) const;
+        void setMat4Array(const char* name, const float* value, int count) const;
 
     private:
         unsigned int m_program = 0;

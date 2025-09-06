@@ -32,6 +32,9 @@
 #include "physics/Physics.h"
 #include <PxPhysicsAPI.h>
 #include "render/ParticleSystem.h"
+#include "render/SkinnedMesh.h"
+#include "render/Skeleton.h"
+#include "render/Animator.h"
 
 namespace engine
 {
@@ -364,6 +367,57 @@ namespace engine
             std::cerr << "[DepthShader] compile failed" << std::endl;
             return false;
         }
+        // Skinning shader (Phong + texture)
+        const char* skVS = R"GLSL(
+            #version 330 core
+            layout (location = 0) in vec3 aPos;
+            layout (location = 1) in vec3 aNormal;
+            layout (location = 2) in vec2 aUV;
+            layout (location = 3) in uvec4 aBoneIds;
+            layout (location = 4) in vec4 aWeights;
+            uniform mat4 u_Model;
+            uniform mat4 u_VP;
+            uniform mat3 u_NormalMatrix;
+            const int MAX_BONES = 128;
+            uniform mat4 u_Bones[MAX_BONES];
+            out vec3 vNormal;
+            out vec3 vWorldPos;
+            out vec2 vUV;
+            void main(){
+                mat4 skin = aWeights.x * u_Bones[aBoneIds.x] + aWeights.y * u_Bones[aBoneIds.y] + aWeights.z * u_Bones[aBoneIds.z] + aWeights.w * u_Bones[aBoneIds.w];
+                vec4 wp = u_Model * skin * vec4(aPos,1.0);
+                vWorldPos = wp.xyz;
+                vNormal = normalize(u_NormalMatrix * mat3(u_Model * skin) * aNormal);
+                vUV = aUV;
+                gl_Position = u_VP * wp;
+            }
+        )GLSL";
+        const char* skFS = R"GLSL(
+            #version 330 core
+            out vec4 FragColor;
+            in vec3 vNormal; in vec3 vWorldPos; in vec2 vUV;
+            uniform vec3 u_CameraPos;
+            uniform vec3 u_LightPos;
+            uniform vec3 u_LightColor;
+            uniform vec3 u_Albedo; uniform float u_Shininess; uniform bool u_UseTexture; uniform sampler2D u_AlbedoTex;
+            void main(){
+                vec3 N = normalize(vNormal);
+                vec3 L = normalize(u_LightPos - vWorldPos);
+                vec3 V = normalize(u_CameraPos - vWorldPos);
+                vec3 H = normalize(L + V);
+                float diff = max(dot(N, L), 0.0);
+                float spec = pow(max(dot(N, H), 0.0), u_Shininess);
+                vec3 base = u_UseTexture ? texture(u_AlbedoTex, vUV).rgb : u_Albedo;
+                vec3 color = base * (0.1 + diff) + u_LightColor * spec;
+                FragColor = vec4(color, 1.0);
+            }
+        )GLSL";
+        m_skinShader = std::make_unique<Shader>();
+        if (!m_skinShader->compileFromSource(skVS, skFS))
+        {
+            std::cerr << "[SkinShader] compile failed" << std::endl;
+            return false;
+        }
         // Point light depth shader (distance to light in color)
         const char* pvs = R"GLSL(
             #version 330 core
@@ -651,6 +705,38 @@ namespace engine
                             m_importedMeshes.push_back(std::move(owned));
                         }
                     }
+                }
+                ImGui::Separator();
+                ImGui::Text("Skinned Import (GLTF/FBX)");
+                ImGui::InputText("Skinned Path", m_skinPath, sizeof(m_skinPath));
+                if (ImGui::Button("Import Skinned") && m_skinPath[0] != '\0')
+                {
+                    ImportedSkinned isk;
+                    if (AssimpLoader::loadSkinned(m_skinPath, isk, true))
+                    {
+                        m_skinMesh.reset(isk.mesh);
+                        m_skinSkeleton.reset(isk.skeleton);
+                        m_skinDiffuse = isk.diffuse;
+                        m_skinAnimations = isk.animations ? *isk.animations : std::vector<Animation>();
+                        delete isk.animations; // copied
+                        if (!m_skinAnimator) m_skinAnimator = std::make_unique<Animator>();
+                        if (!m_skinAnimations.empty())
+                        {
+                            m_skinAnimIndex = 0; m_skinPlaying = true; m_skinLoop = true;
+                            m_skinAnimator->play(&m_skinAnimations[0], m_skinLoop);
+                        }
+                    }
+                }
+                if (!m_skinAnimations.empty())
+                {
+                    ImGui::Text("Animation");
+                    ImGui::SliderInt("Index", &m_skinAnimIndex, 0, (int)m_skinAnimations.size()-1);
+                    ImGui::SameLine();
+                    if (ImGui::Button("Play")) { m_skinPlaying = true; m_skinAnimator->play(&m_skinAnimations[m_skinAnimIndex], m_skinLoop); }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Stop")) { m_skinPlaying = false; }
+                    ImGui::Checkbox("Loop", &m_skinLoop);
+                    ImGui::SliderFloat("Speed", &m_skinSpeed, 0.1f, 3.0f);
                 }
 
                 // Hierarchy
@@ -970,6 +1056,46 @@ namespace engine
             // Re-bind HDR FBO after shadow passes (they restore default FBO)
             if (m_post)
                 m_post->bind(display_w, display_h);
+
+            // Skinned update & draw
+            if (m_skinMesh && m_skinSkeleton && m_skinAnimator)
+            {
+                if (m_skinPlaying)
+                {
+                    // temporarily scale dt by speed by advancing animator time outside; update uses dt directly
+                    float dtLocal = dt * m_skinSpeed;
+                    m_skinAnimator->update(*m_skinSkeleton, dtLocal);
+                }
+                // upload bones
+                const int maxBones = 128;
+                int count = (int)std::min<size_t>(m_skinSkeleton->posePalette.size(), maxBones);
+                m_skinShader->bind();
+                glm::mat4 model = glm::mat4(1.0f);
+                glm::mat4 vp = m_camera->projection() * m_camera->view();
+                glm::mat3 nrm = glm::mat3(glm::transpose(glm::inverse(model)));
+                m_skinShader->setMat4("u_Model", &model[0][0]);
+                m_skinShader->setMat4("u_VP", &vp[0][0]);
+                m_skinShader->setMat3("u_NormalMatrix", &nrm[0][0]);
+                m_skinShader->setVec3("u_CameraPos", m_camera->position().x, m_camera->position().y, m_camera->position().z);
+                m_skinShader->setVec3("u_LightPos", m_lightPos[0], m_lightPos[1], m_lightPos[2]);
+                m_skinShader->setVec3("u_LightColor", m_lightColor[0], m_lightColor[1], m_lightColor[2]);
+                m_skinShader->setVec3("u_Albedo", 1.0f, 1.0f, 1.0f);
+                m_skinShader->setFloat("u_Shininess", 64.0f);
+                if (m_skinDiffuse)
+                {
+                    m_skinShader->setInt("u_UseTexture", 1);
+                    m_skinShader->setInt("u_AlbedoTex", 0);
+                    m_skinDiffuse->bind(0);
+                }
+                else
+                {
+                    m_skinShader->setInt("u_UseTexture", 0);
+                }
+                if (count > 0)
+                    m_skinShader->setMat4Array("u_Bones", &m_skinSkeleton->posePalette[0][0][0], count);
+                m_skinMesh->draw();
+                m_skinShader->unbind();
+            }
 
             // Render scene
             for (const auto& e : m_scene->getEntities())

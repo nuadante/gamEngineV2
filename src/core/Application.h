@@ -24,6 +24,10 @@ namespace engine
     class Skybox;
     class InputMap;
     class Physics;
+    class SkinnedMesh;
+    class Skeleton;
+    class Animator;
+    struct Animation;
 
     class Application
     {
@@ -67,6 +71,13 @@ namespace engine
         std::unique_ptr<Physics> m_physics;
         std::unique_ptr<PostProcess> m_post;
         std::unique_ptr<ParticleSystem> m_particles;
+        // Skinned
+        std::unique_ptr<Shader> m_skinShader;
+        std::unique_ptr<SkinnedMesh> m_skinMesh;
+        std::unique_ptr<Skeleton> m_skinSkeleton;
+        std::unique_ptr<Animator> m_skinAnimator;
+        std::vector<Animation> m_skinAnimations;
+        Texture2D* m_skinDiffuse = nullptr;
         ImVec4 m_clearColor = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
         bool m_showDemo = false;
         bool m_showAnother = false;
@@ -91,6 +102,12 @@ namespace engine
         float m_particlesGravityY = -3.0f;
         float m_particlesColor[3] = {1.0f, 0.6f, 0.2f};
         bool m_particlesAdditive = true;
+        // Skinned controls
+        char m_skinPath[260] = "";
+        int m_skinAnimIndex = 0;
+        bool m_skinLoop = true;
+        bool m_skinPlaying = false;
+        float m_skinSpeed = 1.0f;
         // Shader reloader
         char m_vsPath[260] = "";
         char m_fsPath[260] = "";
