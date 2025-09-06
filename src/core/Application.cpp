@@ -1028,6 +1028,15 @@ namespace engine
                             }
                         }
                     }
+                    ImGui::Separator();
+                    // FPS / frame time readout
+                    static float avgDt = 0.0f; // simple EMA
+                    float currentDt = ImGui::GetIO().DeltaTime;
+                    if (currentDt > 0.0f)
+                        avgDt = avgDt * 0.9f + currentDt * 0.1f;
+                    float fps = (avgDt > 0.0f) ? (1.0f / avgDt) : 0.0f;
+                    ImGui::Text("FPS: %.1f  (dt: %.3f ms)", fps, avgDt * 1000.0f);
+                    ImGui::Text("VSync: %s", m_vsync ? "ON" : "OFF");
                 }
                 ImGui::End();
             }, &m_panelTools);
@@ -1206,7 +1215,7 @@ namespace engine
                 glm::vec3(0,1,0));
             glm::mat4 lightProj = glm::ortho(-m_shadowOrthoSize, m_shadowOrthoSize, -m_shadowOrthoSize, m_shadowOrthoSize, m_shadowNear, m_shadowFar);
             glm::mat4 lightVP = lightProj * lightView;
-            if (m_shadowsEnabled)
+            if (m_shadowsEnabled && !m_wireframe)
             {
                 if (!m_csmEnabled)
                 {
@@ -1255,7 +1264,7 @@ namespace engine
             }
 
             // Point shadow pass: render 6 faces storing distance in cubemap
-            if (m_pointShadowEnabled)
+            if (m_pointShadowEnabled && !m_wireframe)
             {
                 if (m_pointShadowMap->size() != m_pointShadowSize)
                 {
@@ -1292,7 +1301,7 @@ namespace engine
                 glm::vec3(0,1,0));
             glm::mat4 spotProj = glm::perspective(glm::radians(m_spotOuter * 2.0f), 1.0f, m_spotNear, m_spotFar);
             glm::mat4 spotVP = spotProj * spotView;
-            if (m_spotEnabled)
+            if (m_spotEnabled && !m_wireframe)
             {
                 m_shadowMap->begin();
                 for (const auto& e : m_scene->getEntities())
@@ -1628,12 +1637,16 @@ namespace engine
             // Finalize ImGui and render draw data
             m_ui->endFrame();
             // Post-process to screen, then draw ImGui on top
+            if (m_wireframe) { glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); }
             if (m_post)
                 m_post->drawToScreen(display_w, display_h, m_exposure, m_gamma, m_fxaa,
                     m_bloomEnabled, m_bloomThreshold, m_bloomIntensity, m_bloomIterations,
                     m_ssaoEnabled, m_ssaoRadius, m_ssaoBias, m_ssaoPower,
                     m_taaEnabled, m_taaAlpha);
-            m_ui->renderDrawData();
+            // Ensure UI draws in fill mode
+            if (m_wireframe) { glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); }
+            if (m_ui) m_ui->renderDrawData();
+            if (m_wireframe) { glPolygonMode(GL_FRONT_AND_BACK, GL_LINE); }
 
             m_window->swapBuffers();
         }
