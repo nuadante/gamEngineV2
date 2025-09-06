@@ -44,6 +44,42 @@
 
 namespace engine
 {
+    static void normalizePlane(float p[4])
+    {
+        float len = sqrtf(p[0]*p[0]+p[1]*p[1]+p[2]*p[2]);
+        if (len > 0.0f) { p[0]/=len; p[1]/=len; p[2]/=len; p[3]/=len; }
+    }
+
+    void Application::computeCameraFrustum(const float* viewProj)
+    {
+        const float* m = viewProj; // column-major
+        // Extract planes from combined matrix (OpenGL clip space)
+        // Left:  m3 + m0; Right: m3 - m0; Bottom: m3 + m1; Top: m3 - m1; Near: m3 + m2; Far: m3 - m2
+        float L[4] = { m[12]+m[0],  m[13]+m[1],  m[14]+m[2],  m[15]+m[3] };
+        float R[4] = { m[12]-m[0],  m[13]-m[1],  m[14]-m[2],  m[15]-m[3] };
+        float B[4] = { m[12]+m[4],  m[13]+m[5],  m[14]+m[6],  m[15]+m[7] };
+        float T[4] = { m[12]-m[4],  m[13]-m[5],  m[14]-m[6],  m[15]-m[7] };
+        float N[4] = { m[12]+m[8],  m[13]+m[9],  m[14]+m[10], m[15]+m[11] };
+        float F[4] = { m[12]-m[8],  m[13]-m[9],  m[14]-m[10], m[15]-m[11] };
+        normalizePlane(L); normalizePlane(R); normalizePlane(B); normalizePlane(T); normalizePlane(N); normalizePlane(F);
+        memcpy(m_frustumPlanes[0], L, sizeof(L));
+        memcpy(m_frustumPlanes[1], R, sizeof(R));
+        memcpy(m_frustumPlanes[2], B, sizeof(B));
+        memcpy(m_frustumPlanes[3], T, sizeof(T));
+        memcpy(m_frustumPlanes[4], N, sizeof(N));
+        memcpy(m_frustumPlanes[5], F, sizeof(F));
+    }
+
+    bool Application::sphereInFrustum(const float center[3], float radius) const
+    {
+        for (int i=0;i<6;++i)
+        {
+            const float* p = m_frustumPlanes[i];
+            float d = p[0]*center[0] + p[1]*center[1] + p[2]*center[2] + p[3];
+            if (d < -radius) return false;
+        }
+        return true;
+    }
     static glm::vec3 screenToRayDir(double mouseX, double mouseY, int fbWidth, int fbHeight, const glm::mat4& proj, const glm::mat4& view)
     {
         // NDC
@@ -748,7 +784,25 @@ namespace engine
                 ImGui::SliderFloat("Exposure", &m_exposure, 0.1f, 5.0f);
                 ImGui::SliderFloat("Gamma", &m_gamma, 1.0f, 2.6f);
                 ImGui::Checkbox("FXAA", &m_fxaa);
+                ImGui::Checkbox("Frustum Culling", &m_frustumCulling);
+                ImGui::Checkbox("Instancing (same Mesh)", &m_useInstancing);
                 ImGui::Checkbox("Draw Colliders", &m_drawColliders);
+                ImGui::Separator();
+                ImGui::Text("Bloom");
+                ImGui::Checkbox("Bloom Enabled", &m_bloomEnabled);
+                ImGui::SliderFloat("Threshold", &m_bloomThreshold, 0.0f, 5.0f);
+                ImGui::SliderFloat("Intensity", &m_bloomIntensity, 0.0f, 2.0f);
+                ImGui::SliderInt("Iterations", &m_bloomIterations, 1, 10);
+                ImGui::Separator();
+                ImGui::Text("SSAO");
+                ImGui::Checkbox("SSAO Enabled", &m_ssaoEnabled);
+                ImGui::SliderFloat("Radius", &m_ssaoRadius, 0.05f, 2.0f);
+                ImGui::SliderFloat("Bias", &m_ssaoBias, 0.0f, 0.1f, "%.3f");
+                ImGui::SliderFloat("Power", &m_ssaoPower, 0.1f, 3.0f);
+                ImGui::Separator();
+                ImGui::Text("TAA");
+                ImGui::Checkbox("TAA Enabled", &m_taaEnabled);
+                ImGui::SliderFloat("TAA Alpha", &m_taaAlpha, 0.02f, 0.3f);
                 ImGui::Separator();
                 ImGui::Text("Particles");
                 ImGui::Checkbox("Emit", &m_particlesEmit);
@@ -1471,9 +1525,26 @@ namespace engine
                 m_skinShader->unbind();
             }
 
-            // Render scene
-            for (const auto& e : m_scene->getEntities())
+            // Frustum culling visibility compute
+            if (m_frustumCulling)
             {
+                glm::mat4 vp = m_camera->projection() * m_camera->view();
+                computeCameraFrustum(&vp[0][0]);
+                m_frustumVisible.assign(m_scene->getEntities().size(), 1);
+                for (size_t i=0;i<m_scene->getEntities().size();++i)
+                {
+                    const auto& e = m_scene->getEntities()[i];
+                    float center[3] = { e.transform.position.x, e.transform.position.y, e.transform.position.z };
+                    float radius = 1.0f * std::max({e.transform.scale.x, e.transform.scale.y, e.transform.scale.z});
+                    if (!sphereInFrustum(center, radius)) m_frustumVisible[i] = 0;
+                }
+            }
+
+            // Render scene
+            for (size_t ei=0; ei<m_scene->getEntities().size(); ++ei)
+            {
+                const auto& e = m_scene->getEntities()[ei];
+                if (m_frustumCulling && ei < m_frustumVisible.size() && m_frustumVisible[ei]==0) continue;
                 glm::mat4 model = e.transform.modelMatrix();
                 glm::mat4 mvp = m_camera->projection() * m_camera->view() * model;
                 glm::mat3 normalMat = glm::mat3(glm::transpose(glm::inverse(model)));
@@ -1732,7 +1803,10 @@ namespace engine
             ImGui::Render();
             // Post-process to screen, then draw ImGui on top
             if (m_post)
-                m_post->drawToScreen(display_w, display_h, m_exposure, m_gamma, m_fxaa);
+                m_post->drawToScreen(display_w, display_h, m_exposure, m_gamma, m_fxaa,
+                    m_bloomEnabled, m_bloomThreshold, m_bloomIntensity, m_bloomIterations,
+                    m_ssaoEnabled, m_ssaoRadius, m_ssaoBias, m_ssaoPower,
+                    m_taaEnabled, m_taaAlpha);
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
             m_window->swapBuffers();

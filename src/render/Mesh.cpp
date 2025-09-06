@@ -63,8 +63,36 @@ namespace engine
         glBindVertexArray(0);
     }
 
+    void Mesh::drawInstanced(int count) const
+    {
+        glBindVertexArray(m_vao);
+        glDrawElementsInstanced(GL_TRIANGLES, m_indexCount, GL_UNSIGNED_INT, 0, count);
+        glBindVertexArray(0);
+    }
+
+    bool Mesh::setInstanceTransforms(const std::vector<glm::mat4>& instanceMatrices)
+    {
+        if (m_vao == 0) return false;
+        if (m_instanceVBO == 0)
+            glGenBuffers(1, &m_instanceVBO);
+        glBindVertexArray(m_vao);
+        glBindBuffer(GL_ARRAY_BUFFER, m_instanceVBO);
+        glBufferData(GL_ARRAY_BUFFER, instanceMatrices.size()*sizeof(glm::mat4), instanceMatrices.data(), GL_DYNAMIC_DRAW);
+        // set attributes 3,4,5,6 as mat4 (vec4 per column)
+        std::size_t vec4Size = sizeof(float)*4;
+        for (int i=0;i<4;++i)
+        {
+            glEnableVertexAttribArray(3+i);
+            glVertexAttribPointer(3+i, 4, GL_FLOAT, GL_FALSE, sizeof(glm::mat4), (void*)(i*vec4Size));
+            glVertexAttribDivisor(3+i, 1);
+        }
+        glBindVertexArray(0);
+        return true;
+    }
+
     void Mesh::destroy()
     {
+        if (m_instanceVBO) { glDeleteBuffers(1, &m_instanceVBO); m_instanceVBO = 0; }
         if (m_ebo) { glDeleteBuffers(1, &m_ebo); m_ebo = 0; }
         if (m_vbo) { glDeleteBuffers(1, &m_vbo); m_vbo = 0; }
         if (m_vao) { glDeleteVertexArrays(1, &m_vao); m_vao = 0; }

@@ -55,6 +55,9 @@ namespace engine
         void rebuildPhysicsFromScene();
         // picking helpers
         void handlePicking();
+        // frustum culling helpers
+        void computeCameraFrustum(const float* viewProj);
+        bool sphereInFrustum(const float center[3], float radius) const;
 
     private:
         std::unique_ptr<Window> m_window;
@@ -125,6 +128,19 @@ namespace engine
         float m_exposure = 1.0f;
         float m_gamma = 2.2f;
         bool m_fxaa = true;
+        // SSAO
+        bool m_ssaoEnabled = false;
+        float m_ssaoRadius = 0.6f;
+        float m_ssaoBias = 0.025f;
+        float m_ssaoPower = 1.0f;
+        // Bloom
+        bool m_bloomEnabled = true;
+        float m_bloomThreshold = 1.0f;
+        float m_bloomIntensity = 0.7f;
+        int m_bloomIterations = 5;
+        // TAA
+        bool m_taaEnabled = false;
+        float m_taaAlpha = 0.1f;
         // Particles
         bool m_particlesEmit = true;
         float m_particlesRate = 50.0f;
@@ -210,6 +226,13 @@ namespace engine
         // Model import (Assimp)
         char m_modelPath[260] = "";
         std::vector<std::unique_ptr<Mesh>> m_importedMeshes;
+
+        // Performance
+        bool m_frustumCulling = true;
+        bool m_useInstancing = false;
+        // frustum planes: 6 planes (a,b,c,d)
+        float m_frustumPlanes[6][4] = {};
+        std::vector<unsigned char> m_frustumVisible;
     };
 }
 

@@ -21,7 +21,10 @@ namespace engine
         // Rebind HDR FBO without clearing (e.g., after other passes changed FBO)
         void bind(int width, int height);
         // Draw the HDR color buffer to default framebuffer with tone mapping
-        void drawToScreen(int screenWidth, int screenHeight, float exposure, float gamma, bool fxaaEnabled);
+        void drawToScreen(int screenWidth, int screenHeight, float exposure, float gamma, bool fxaaEnabled,
+                          bool bloomEnabled, float bloomThreshold, float bloomIntensity, int bloomIterations,
+                          bool ssaoEnabled, float ssaoRadius, float ssaoBias, float ssaoPower,
+                          bool taaEnabled, float taaAlpha);
 
         unsigned int colorTexture() const { return m_colorTex; }
 
@@ -32,6 +35,9 @@ namespace engine
     private:
         unsigned int m_fbo = 0;
         unsigned int m_colorTex = 0; // GL_RGBA16F
+        unsigned int m_colorTexHistory = 0; // for TAA
+        unsigned int m_ssaoTex = 0; // single-channel AO
+        unsigned int m_pingTex = 0, m_pongTex = 0; // bloom buffers
         unsigned int m_depthRbo = 0;
         int m_width = 0;
         int m_height = 0;
@@ -39,6 +45,10 @@ namespace engine
         unsigned int m_vao = 0;
         unsigned int m_vbo = 0;
         std::unique_ptr<Shader> m_shader;
+        std::unique_ptr<Shader> m_bloomShader;
+        std::unique_ptr<Shader> m_blurShader;
+        std::unique_ptr<Shader> m_ssaoShader;
+        std::unique_ptr<Shader> m_copyShader;
     };
 }
 

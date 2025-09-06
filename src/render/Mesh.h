@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <glm/glm.hpp>
 
 namespace engine
 {
@@ -18,6 +19,8 @@ namespace engine
         // vertices: position (3) + normal (3) + uv (2) = 8 floats per vertex
         bool create(const std::vector<float>& vertices, const std::vector<unsigned int>& indices);
         void draw() const;
+        void drawInstanced(int count) const;
+        bool setInstanceTransforms(const std::vector<glm::mat4>& instanceMatrices);
         void destroy();
 
         static Mesh createCube();
@@ -28,6 +31,7 @@ namespace engine
         unsigned int m_vbo = 0;
         unsigned int m_ebo = 0;
         unsigned int m_indexCount = 0;
+        unsigned int m_instanceVBO = 0;
     };
 }
 
