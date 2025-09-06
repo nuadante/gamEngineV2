@@ -7,13 +7,14 @@
 
 namespace engine
 {
+    static LuaEngine* s_instance = nullptr;
     static long long file_mtime(const std::string& path)
     {
         struct _stat64 st; if (_stat64(path.c_str(), &st) == 0) return (long long)st.st_mtime; return 0;
     }
 
     LuaEngine::LuaEngine() = default;
-    LuaEngine::~LuaEngine() { shutdown(); }
+    LuaEngine::~LuaEngine() { shutdown(); if (s_instance == this) s_instance = nullptr; }
 
     bool LuaEngine::initialize()
     {
@@ -23,6 +24,7 @@ namespace engine
         // register C API
         lua_register(m_L, "get_entity_pos", l_get_entity_pos);
         lua_register(m_L, "set_entity_pos", l_set_entity_pos);
+        s_instance = this;
         return true;
     }
 
@@ -81,6 +83,27 @@ namespace engine
             }
         }
         else lua_pop(m_L, 1);
+
+        // per-entity update hook: update_entity(id, dt)
+        for (auto& p : m_entities)
+        {
+            int id = p.first;
+            Entity* e = p.second;
+            if (!e || !e->scriptEnabled) continue;
+            lua_getglobal(m_L, "update_entity");
+            if (lua_isfunction(m_L, -1))
+            {
+                lua_pushinteger(m_L, id);
+                lua_pushnumber(m_L, dt);
+                if (lua_pcall(m_L, 2, 0, 0) != LUA_OK)
+                {
+                    const char* err = lua_tostring(m_L, -1);
+                    std::fprintf(stderr, "[Lua] update_entity error: %s\n", err ? err : "");
+                    lua_pop(m_L, 1);
+                }
+            }
+            else lua_pop(m_L, 1);
+        }
     }
 
     void LuaEngine::bindEntity(int id, Entity* e)
@@ -105,12 +128,39 @@ namespace engine
 
     int LuaEngine::l_get_entity_pos(lua_State* L)
     {
-        // get by index passed from lua side; for demo return (0,0,0)
-        (void)L; lua_pushnumber(L, 0.0); lua_pushnumber(L, 0.0); lua_pushnumber(L, 0.0); return 3;
+        int id = (int)luaL_checkinteger(L, 1);
+        if (!s_instance) { lua_pushnumber(L,0); lua_pushnumber(L,0); lua_pushnumber(L,0); return 3; }
+        for (auto& p : s_instance->m_entities)
+        {
+            if (p.first == id && p.second)
+            {
+                auto& pos = p.second->transform.position;
+                lua_pushnumber(L, pos.x);
+                lua_pushnumber(L, pos.y);
+                lua_pushnumber(L, pos.z);
+                return 3;
+            }
+        }
+        lua_pushnumber(L, 0); lua_pushnumber(L, 0); lua_pushnumber(L, 0); return 3;
     }
     int LuaEngine::l_set_entity_pos(lua_State* L)
     {
-        (void)L; return 0;
+        int id = (int)luaL_checkinteger(L, 1);
+        float x = (float)luaL_checknumber(L, 2);
+        float y = (float)luaL_checknumber(L, 3);
+        float z = (float)luaL_checknumber(L, 4);
+        if (s_instance)
+        {
+            for (auto& p : s_instance->m_entities)
+            {
+                if (p.first == id && p.second)
+                {
+                    p.second->transform.position = {x,y,z};
+                    break;
+                }
+            }
+        }
+        return 0;
     }
 }
 
