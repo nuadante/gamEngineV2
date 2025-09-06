@@ -31,6 +31,7 @@ add_executable(${PROJECT_NAME}
     src/render/PostProcess.cpp
     src/render/Skybox.cpp
     src/render/AssimpLoader.cpp
+    src/render/ParticleSystem.cpp
     src/core/ResourceManager.cpp
     src/scene/SceneSerializer.cpp
     src/scene/Scene.h

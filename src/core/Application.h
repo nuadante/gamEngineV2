@@ -20,6 +20,7 @@ namespace engine
     class ShadowMap;
     class PointShadowMap;
     class PostProcess;
+    class ParticleSystem;
     class Skybox;
     class InputMap;
     class Physics;
@@ -65,8 +66,9 @@ namespace engine
         std::unique_ptr<InputMap> m_inputMap;
         std::unique_ptr<Physics> m_physics;
         std::unique_ptr<PostProcess> m_post;
+        std::unique_ptr<ParticleSystem> m_particles;
         ImVec4 m_clearColor = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-        bool m_showDemo = true;
+        bool m_showDemo = false;
         bool m_showAnother = false;
         // Lighting/UI parameters
         float m_lightPos[3] = { 3.0f, 3.0f, 3.0f };
@@ -81,6 +83,14 @@ namespace engine
         float m_exposure = 1.0f;
         float m_gamma = 2.2f;
         bool m_fxaa = true;
+        // Particles
+        bool m_particlesEmit = true;
+        float m_particlesRate = 50.0f;
+        float m_particlesLifetime = 1.5f;
+        float m_particlesSize = 6.0f;
+        float m_particlesGravityY = -3.0f;
+        float m_particlesColor[3] = {1.0f, 0.6f, 0.2f};
+        bool m_particlesAdditive = true;
         // Shader reloader
         char m_vsPath[260] = "";
         char m_fsPath[260] = "";

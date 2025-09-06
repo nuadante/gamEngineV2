@@ -31,6 +31,7 @@
 #include "core/Time.h"
 #include "physics/Physics.h"
 #include <PxPhysicsAPI.h>
+#include "render/ParticleSystem.h"
 
 namespace engine
 {
@@ -239,6 +240,8 @@ namespace engine
         Renderer::initialize();
         m_post = std::make_unique<PostProcess>();
         m_post->create(fbw, fbh);
+        m_particles = std::make_unique<ParticleSystem>();
+        m_particles->initialize(2000);
 
         // Resource manager
         m_resources = std::make_unique<ResourceManager>();
@@ -518,6 +521,16 @@ namespace engine
                 ImGui::SliderFloat("Gamma", &m_gamma, 1.0f, 2.6f);
                 ImGui::Checkbox("FXAA", &m_fxaa);
                 ImGui::Checkbox("Draw Colliders", &m_drawColliders);
+                ImGui::Separator();
+                ImGui::Text("Particles");
+                ImGui::Checkbox("Emit", &m_particlesEmit);
+                ImGui::SliderFloat("Rate (p/s)", &m_particlesRate, 0.0f, 500.0f);
+                ImGui::SliderFloat("Lifetime", &m_particlesLifetime, 0.1f, 5.0f);
+                ImGui::SliderFloat("Size", &m_particlesSize, 1.0f, 20.0f);
+                ImGui::SliderFloat("Gravity Y", &m_particlesGravityY, -20.0f, 20.0f);
+                ImGui::ColorEdit3("Color", m_particlesColor);
+                ImGui::Checkbox("Additive", &m_particlesAdditive);
+                ImGui::Separator();
                 ImGui::Checkbox("Enable Picking (LMB)", &m_enablePicking);
                 ImGui::Checkbox("Push On Pick", &m_pushOnPick);
                 ImGui::Checkbox("Auto Create Rigid On Push", &m_autoCreateRigidOnPush);
@@ -1084,6 +1097,21 @@ namespace engine
 
             // Draw skybox last
             m_skybox->draw(m_camera->projection(), m_camera->view(), {m_skyTop[0], m_skyTop[1], m_skyTop[2]}, {m_skyBottom[0], m_skyBottom[1], m_skyBottom[2]});
+
+            // Update & draw particles (after opaque)
+            if (m_particles)
+            {
+                m_particles->update(dt,
+                    m_particlesEmit,
+                    glm::vec3(0.0f, 1.0f, 0.0f),
+                    m_particlesRate,
+                    m_particlesLifetime,
+                    m_particlesSize,
+                    glm::vec3(m_particlesColor[0], m_particlesColor[1], m_particlesColor[2]),
+                    m_particlesGravityY,
+                    m_particlesAdditive);
+                m_particles->draw(&m_camera->projection()[0][0], &m_camera->view()[0][0]);
+            }
 
             // Finalize ImGui and render draw data
             ImGui::Render();
