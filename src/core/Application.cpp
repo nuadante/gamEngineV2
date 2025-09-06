@@ -694,183 +694,339 @@ namespace engine
             std::cerr << "[PBR] compile failed" << std::endl;
         }
 
-        // Register UI panels
+        // Additional UI Panels
         if (m_ui)
         {
-            // Hierarchy panel
+            // General panel
             m_ui->registerPanel([this]()
             {
-                if (ImGui::Begin("Hierarchy"))
+                if (ImGui::Begin("General"))
                 {
-                    if (ImGui::Button("Add Cube"))
+                    ImGui::ColorEdit3("Clear Color", (float*)&m_clearColor);
+                    ImGui::Checkbox("VSync", &m_vsync);
+                    ImGui::Checkbox("Wireframe", &m_wireframe);
+                }
+                ImGui::End();
+            });
+
+            // Lighting & Shadows
+            m_ui->registerPanel([this]()
+            {
+                if (ImGui::Begin("Lighting & Shadows"))
+                {
+                    ImGui::Text("Lighting");
+                    ImGui::DragFloat3("Light Pos", m_lightPos, 0.1f);
+                    ImGui::ColorEdit3("Light Color", m_lightColor);
+                    ImGui::Separator();
+                    ImGui::Text("Shadows");
+                    ImGui::Checkbox("Enable Shadows", &m_shadowsEnabled);
+                    ImGui::SliderFloat("Bias", &m_shadowBias, 0.0001f, 0.01f, "%.5f");
+                    ImGui::Checkbox("Enable CSM", &m_csmEnabled);
+                    ImGui::SliderInt("Cascade Count", &m_cascadeCount, 1, 4);
+                    ImGui::SliderInt("CSM Size", &m_csmSize, 256, 4096);
+                    ImGui::DragFloat4("Cascade Ends", m_cascadeEnds, 0.5f, 0.1f, 500.0f);
+                    ImGui::Checkbox("PCF", &m_usePCF); ImGui::SameLine(); ImGui::Checkbox("PCSS", &m_usePCSS);
+                    ImGui::SliderInt("PCF Kernel", &m_pcfKernel, 1, 4);
+                    ImGui::SliderFloat("Light Radius", &m_lightRadius, 0.0f, 2.0f);
+                    ImGui::Separator();
+                    ImGui::Text("Point Light");
+                    ImGui::Checkbox("Enable Point Shadow", &m_pointShadowEnabled);
+                    ImGui::DragFloat3("Point Pos", m_pointLightPos, 0.1f);
+                    ImGui::ColorEdit3("Point Color", m_pointLightColor);
+                    ImGui::SliderFloat("Point Far", &m_pointShadowFar, 1.0f, 100.0f);
+                    ImGui::SliderFloat("Point Bias", &m_pointShadowBias, 0.0001f, 0.05f, "%.4f");
+                    ImGui::Separator();
+                    ImGui::Text("Spot Light");
+                    ImGui::Checkbox("Enable Spot", &m_spotEnabled);
+                    ImGui::DragFloat3("Spot Pos", m_spotPos, 0.1f);
+                    ImGui::DragFloat3("Spot Dir", m_spotDir, 0.01f);
+                    ImGui::ColorEdit3("Spot Color", m_spotColor);
+                    ImGui::SliderFloat("Inner (deg)", &m_spotInner, 1.0f, 89.0f);
+                    ImGui::SliderFloat("Outer (deg)", &m_spotOuter, 1.0f, 89.0f);
+                    ImGui::SliderFloat("Spot Far", &m_spotFar, 1.0f, 100.0f);
+                    ImGui::SliderFloat("Spot Bias", &m_spotBias, 0.0001f, 0.01f, "%.4f");
+                }
+                ImGui::End();
+            });
+
+            // Post-process & Performance
+            m_ui->registerPanel([this]()
+            {
+                if (ImGui::Begin("Post-process & Performance"))
+                {
+                    ImGui::Text("Post-process");
+                    ImGui::SliderFloat("Exposure", &m_exposure, 0.1f, 5.0f);
+                    ImGui::SliderFloat("Gamma", &m_gamma, 1.0f, 2.6f);
+                    ImGui::Checkbox("FXAA", &m_fxaa);
+                    ImGui::Separator();
+                    ImGui::Text("Bloom");
+                    ImGui::Checkbox("Bloom Enabled", &m_bloomEnabled);
+                    ImGui::SliderFloat("Threshold", &m_bloomThreshold, 0.0f, 5.0f);
+                    ImGui::SliderFloat("Intensity", &m_bloomIntensity, 0.0f, 2.0f);
+                    ImGui::SliderInt("Iterations", &m_bloomIterations, 1, 10);
+                    ImGui::Separator();
+                    ImGui::Text("SSAO");
+                    ImGui::Checkbox("SSAO Enabled", &m_ssaoEnabled);
+                    ImGui::SliderFloat("Radius", &m_ssaoRadius, 0.05f, 2.0f);
+                    ImGui::SliderFloat("Bias", &m_ssaoBias, 0.0f, 0.1f, "%.3f");
+                    ImGui::SliderFloat("Power", &m_ssaoPower, 0.1f, 3.0f);
+                    ImGui::Separator();
+                    ImGui::Text("TAA");
+                    ImGui::Checkbox("TAA Enabled", &m_taaEnabled);
+                    ImGui::SliderFloat("TAA Alpha", &m_taaAlpha, 0.02f, 0.3f);
+                    ImGui::Separator();
+                    ImGui::Text("Performance");
+                    ImGui::Checkbox("Frustum Culling", &m_frustumCulling);
+                    ImGui::Checkbox("Instancing (same Mesh)", &m_useInstancing);
+                    ImGui::Checkbox("Draw Colliders", &m_drawColliders);
+                }
+                ImGui::End();
+            });
+
+            // Sky & IBL
+            m_ui->registerPanel([this]()
+            {
+                if (ImGui::Begin("Sky & IBL"))
+                {
+                    ImGui::Text("Skybox");
+                    ImGui::ColorEdit3("Top", m_skyTop);
+                    ImGui::ColorEdit3("Bottom", m_skyBottom);
+                    static bool useCube = false;
+                    ImGui::Checkbox("Use Cubemap", &useCube);
+                    if (ImGui::Button("Load Cubemap"))
                     {
-                        int idx = (int)m_scene->entities().size();
-                        int e = m_scene->addEntity(std::string("Cube ") + std::to_string(idx), m_cube.get(), m_shader.get(), m_texture.get());
-                        m_scene->entities()[e].transform.position = { (float)(idx % 5) - 2.0f, 0.0f, (float)(idx / 5) * 1.5f };
+                        std::vector<std::string> faces = {"right.jpg","left.jpg","top.jpg","bottom.jpg","front.jpg","back.jpg"};
+                        if (m_skybox)
+                        {
+                            if (m_skybox->loadCubemap(faces))
+                                m_skybox->setUseCubemap(true);
+                        }
                     }
-                    ImGui::SameLine();
-                    if (ImGui::Button("Delete Selected"))
+                    if (m_skybox) m_skybox->setUseCubemap(useCube);
+                    ImGui::Separator();
+                    ImGui::Text("IBL");
+                    ImGui::Checkbox("Use IBL", &m_useIBL);
+                    ImGui::InputText("HDR Path", m_hdrPath, sizeof(m_hdrPath));
+                    if (ImGui::Button("Load HDR"))
+                    {
+                        if (!m_ibl) m_ibl = std::make_unique<IBL>();
+                        if (m_hdrPath[0]) m_useIBL = m_ibl->createFromHDR(m_hdrPath);
+                    }
+                }
+                ImGui::End();
+            });
+
+            // Terrain
+            m_ui->registerPanel([this]()
+            {
+                if (ImGui::Begin("Terrain"))
+                {
+                    ImGui::InputText("Heightmap", m_heightPath, sizeof(m_heightPath));
+                    ImGui::InputText("SplatCtrl (RGBA)", m_splatCtrlPath, sizeof(m_splatCtrlPath));
+                    ImGui::InputText("Splat0", m_splat0Path, sizeof(m_splat0Path));
+                    ImGui::InputText("Splat1", m_splat1Path, sizeof(m_splat1Path));
+                    ImGui::InputText("Splat2", m_splat2Path, sizeof(m_splat2Path));
+                    ImGui::InputText("Splat3", m_splat3Path, sizeof(m_splat3Path));
+                    ImGui::InputText("NormalMap", m_normalPath, sizeof(m_normalPath));
+                    if (ImGui::Button("Load Terrain Textures"))
+                    {
+                        if (m_terrain)
+                        {
+                            if (m_heightPath[0]) m_terrain->setHeightmap(m_resources->getTextureFromFile(m_heightPath, false));
+                            if (m_splatCtrlPath[0]) m_terrain->setSplatControl(m_resources->getTextureFromFile(m_splatCtrlPath, false));
+                            if (m_splat0Path[0]) m_terrain->setSplatTexture(0, m_resources->getTextureFromFile(m_splat0Path, false));
+                            if (m_splat1Path[0]) m_terrain->setSplatTexture(1, m_resources->getTextureFromFile(m_splat1Path, false));
+                            if (m_splat2Path[0]) m_terrain->setSplatTexture(2, m_resources->getTextureFromFile(m_splat2Path, false));
+                            if (m_splat3Path[0]) m_terrain->setSplatTexture(3, m_resources->getTextureFromFile(m_splat3Path, false));
+                            if (m_normalPath[0]) m_terrain->setNormalMap(m_resources->getTextureFromFile(m_normalPath, false));
+                        }
+                    }
+                    ImGui::SliderInt("LOD", &m_terrainLOD, 0, 2);
+                    ImGui::SliderFloat("Height Scale", &m_terrainHeightScale, 1.0f, 200.0f);
+                    ImGui::SliderFloat("Splat Tiling", &m_terrainSplatTiling, 1.0f, 64.0f);
+                    ImGui::SliderFloat("Cell World Size", &m_terrainCellWorld, 0.25f, 8.0f);
+                    if (m_terrain)
+                    {
+                        m_terrain->setLOD(m_terrainLOD);
+                        m_terrain->setParams(m_terrainHeightScale, m_terrainSplatTiling, m_terrainCellWorld);
+                    }
+                }
+                ImGui::End();
+            });
+
+            // Scripting (Lua)
+            m_ui->registerPanel([this]()
+            {
+                if (ImGui::Begin("Scripting (Lua)"))
+                {
+                    ImGui::Checkbox("Hot Reload", &m_luaHotReload);
+                    if (m_lua) m_lua->setHotReloadEnabled(m_luaHotReload);
+                    if (ImGui::Button("Load Script (Selected Entity)"))
                     {
                         int sel = m_scene->selectedIndex();
                         if (sel >= 0)
                         {
-                            destroyPhysicsForEntity(sel);
-                            m_scene->removeEntity(sel);
-                            // reindex bindings > selected index shift
-                            for (auto& b : m_physBindings)
-                                if (b.entityIndex > sel) b.entityIndex--;
-                        }
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button("Spawn Phys Box"))
-                    {
-                        int idx = (int)m_scene->entities().size();
-                        int e = m_scene->addEntity(std::string("PhysBox ") + std::to_string(idx), m_cube.get(), m_shader.get(), m_texture.get());
-                        m_scene->entities()[e].transform.position = { 0.0f, 5.0f, 0.0f };
-                        if (m_physics)
-                        {
-                            void* act = m_physics->addDynamicBox(0.0f, 5.0f, 0.0f, 0.5f, 0.5f, 0.5f, 1.0f);
-                            if (act) m_physBindings.push_back({ act, e });
-                        }
-                    }
-                    auto& es = m_scene->entities();
-                    for (int i = 0; i < (int)es.size(); ++i)
-                    {
-                        bool selected = (m_scene->selectedIndex() == i);
-                        if (ImGui::Selectable(es[i].name.c_str(), selected))
-                        {
-                            m_scene->setSelectedIndex(i);
-                        }
-                        if (selected)
-                        {
-                            ImGui::SameLine();
-                            if (ImGui::Button("Apply Physics##sel"))
-                                createPhysicsForEntity(i);
+                            auto& e = m_scene->entities()[sel];
+                            if (!e.scriptPath.empty() && m_lua)
+                            {
+                                m_lua->loadScript(e.scriptPath);
+                                m_lua->bindEntity(sel, &e);
+                                e.scriptEnabled = true;
+                            }
                         }
                     }
                 }
                 ImGui::End();
             });
 
-            // Inspector panel
+            // Audio
             m_ui->registerPanel([this]()
             {
-                if (ImGui::Begin("Inspector"))
+                if (ImGui::Begin("Audio"))
                 {
-                    int sel = m_scene->selectedIndex();
-                    if (sel >= 0)
+                    ImGui::InputText("Music (OGG/WAV)", m_musicPath, sizeof(m_musicPath));
+                    ImGui::SameLine();
+                    if (ImGui::Button("Play Music"))
                     {
-                        auto& ent = m_scene->entities()[sel];
-                        char nameBuf[128];
-                        memset(nameBuf, 0, sizeof(nameBuf));
-                        strncpy_s(nameBuf, ent.name.c_str(), sizeof(nameBuf) - 1);
-                        if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf)))
-                            ent.name = nameBuf;
-                        auto& t = ent.transform;
-                        ImGui::DragFloat3("Position", &t.position.x, 0.01f);
-                        ImGui::DragFloat3("Rotation (rad)", &t.rotationEuler.x, 0.01f);
-                        ImGui::DragFloat3("Scale", &t.scale.x, 0.01f, 0.01f, 100.0f);
-                        ImGui::Separator();
-                        ImGui::Text("Material");
-                        ImGui::ColorEdit3("Albedo", ent.albedo);
-                        ImGui::SliderFloat("Shininess", &ent.shininess, 1.0f, 256.0f);
-                        ImGui::Checkbox("Use Texture (entity)", &ent.useTexture);
-                        ImGui::Separator();
-                        ImGui::Text("Physics");
-                        ImGui::Checkbox("Has RigidBody", &ent.hasRigidBody);
-                        if (ent.hasRigidBody)
-                        {
-                            ImGui::Checkbox("Static", &ent.isStatic);
-                            if (!ent.isStatic)
-                            {
-                                ImGui::Checkbox("Kinematic", &ent.isKinematic);
-                                ImGui::SliderFloat("Mass", &ent.mass, 0.01f, 1000.0f);
-                            }
-                            ImGui::SliderFloat("Friction", &ent.friction, 0.0f, 1.0f);
-                            ImGui::SliderFloat("Restitution", &ent.restitution, 0.0f, 1.0f);
-                            ImGui::DragFloat3("Box Half-Extents", ent.colliderHalf, 0.01f, 0.01f, 10.0f);
-                            if (ImGui::Button("Apply Physics (Rebuild)"))
-                                createPhysicsForEntity(sel);
-                        }
-                        ImGui::Separator();
-                        static int meshChoice = 0; // 0 Cube, 1 Plane
-                        ImGui::Text("Mesh");
-                        ImGui::RadioButton("Cube", &meshChoice, 0); ImGui::SameLine();
-                        ImGui::RadioButton("Plane", &meshChoice, 1);
-                        if (ImGui::Button("Apply Mesh"))
-                            ent.mesh = (meshChoice == 0) ? m_resources->getCube("unit_cube") : m_resources->getPlane("unit_plane");
-                        static char entTexPath[260] = "";
-                        ImGui::InputText("Entity Tex Path", entTexPath, sizeof(entTexPath));
-                        if (ImGui::Button("Load Entity Texture"))
-                        {
-                            if (entTexPath[0] != '\0')
-                            {
-                                Texture2D* t2d = m_resources->getTextureFromFile(entTexPath, true);
-                                if (t2d) ent.albedoTex = t2d;
-                            }
-                        }
-                        static char matPath[260] = "";
-                        ImGui::InputText("Material (.mat.json)", matPath, sizeof(matPath));
-                        if (ImGui::Button("Load Material"))
-                        {
-                            if (matPath[0])
-                            {
-                                auto* mat = m_resources->getMaterialFromFile(matPath);
-                                if (mat)
-                                {
-                                    ent.material = mat;
-                                    ent.materialPath = mat->sourcePath.empty()? std::string(matPath) : mat->sourcePath;
-                                    ent.usePBR = true;
-                                    if (mat->albedoTex) { ent.albedoTex = mat->albedoTex; ent.useTexture = true; }
-                                    if (mat->metallicTex) ent.metallicTex = mat->metallicTex;
-                                    if (mat->roughnessTex) ent.roughnessTex = mat->roughnessTex;
-                                    if (mat->aoTex) ent.aoTex = mat->aoTex;
-                                    if (mat->normalTex) ent.normalTex = mat->normalTex;
-                                    ent.albedo[0]=mat->albedo[0]; ent.albedo[1]=mat->albedo[1]; ent.albedo[2]=mat->albedo[2];
-                                    ent.metallic = mat->metallic; ent.roughness = mat->roughness; ent.ao = mat->ao;
-                                }
-                            }
-                        }
+                        if (m_audio && m_musicPath[0]) { auto buf = m_audio->loadSound(m_musicPath); if (buf) m_musicSrc = m_audio->play(buf, 0.6f, true); }
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Stop Music"))
+                    {
+                        if (m_audio && m_musicSrc) { m_audio->stop(m_musicSrc); m_musicSrc = 0; }
+                    }
+                    ImGui::InputText("SFX (OGG/WAV)", m_sfxPath, sizeof(m_sfxPath));
+                    if (ImGui::Button("Play SFX"))
+                    {
+                        if (m_audio && m_sfxPath[0]) { auto buf = m_audio->loadSound(m_sfxPath); if (buf) m_audio->play3D(buf, 0.0f, 0.0f, 0.0f, 1.0f, false); }
+                    }
+                }
+                ImGui::End();
+            });
+
+            // Input Mapping
+            m_ui->registerPanel([this]()
+            {
+                if (ImGui::Begin("Input Mapping"))
+                {
+                    auto drawRebind = [&](const char* axisName){
+                        auto a = m_inputMap->axis(axisName);
+                        ImGui::Text("%s: +%d  -%d", axisName, a.positiveKey, a.negativeKey);
                         ImGui::SameLine();
-                        if (ImGui::Button("Save Material"))
+                        std::string btnP = std::string("Rebind + (") + axisName + ")";
+                        if (ImGui::Button(btnP.c_str())) { m_rebindActive = true; strncpy_s(m_rebindAxis, axisName, sizeof(m_rebindAxis)-1); m_rebindPositive = true; }
+                        ImGui::SameLine();
+                        std::string btnN = std::string("Rebind - (") + axisName + ")";
+                        if (ImGui::Button(btnN.c_str())) { m_rebindActive = true; strncpy_s(m_rebindAxis, axisName, sizeof(m_rebindAxis)-1); m_rebindPositive = false; }
+                    };
+                    drawRebind("MoveForward");
+                    drawRebind("MoveRight");
+                    drawRebind("MoveUp");
+                    if (m_rebindActive)
+                    {
+                        ImGui::Text("Press a key to bind %s %s", m_rebindAxis, m_rebindPositive?"(+)":"(-)");
+                        for (int k = 32; k <= 348; ++k)
                         {
-                            if (matPath[0])
+                            if (m_input->isKeyPressed(k))
                             {
-                                MaterialAsset tmp;
-                                tmp.albedo[0]=ent.albedo[0]; tmp.albedo[1]=ent.albedo[1]; tmp.albedo[2]=ent.albedo[2];
-                                tmp.metallic=ent.metallic; tmp.roughness=ent.roughness; tmp.ao=ent.ao;
-                                if (auto p = m_resources->getPathForTexture(ent.albedoTex)) tmp.albedoTexPath = *p;
-                                if (auto p = m_resources->getPathForTexture(ent.metallicTex)) tmp.metallicTexPath = *p;
-                                if (auto p = m_resources->getPathForTexture(ent.roughnessTex)) tmp.roughnessTexPath = *p;
-                                if (auto p = m_resources->getPathForTexture(ent.aoTex)) tmp.aoTexPath = *p;
-                                if (auto p = m_resources->getPathForTexture(ent.normalTex)) tmp.normalTexPath = *p;
-                                tmp.saveToFile(matPath);
-                                ent.materialPath = matPath;
+                                m_inputMap->setAxisKey(m_rebindAxis, m_rebindPositive, k);
+                                m_rebindActive = false;
+                                break;
                             }
                         }
-                        ImGui::Separator();
-                        ImGui::Text("Script");
-                        static char scriptBuf[260] = "";
-                        if (!ent.scriptPath.empty()) strncpy_s(scriptBuf, ent.scriptPath.c_str(), sizeof(scriptBuf)-1);
-                        if (ImGui::InputText("Lua Path", scriptBuf, sizeof(scriptBuf))) { ent.scriptPath = scriptBuf; }
-                        ImGui::Checkbox("Enabled", &ent.scriptEnabled);
-                        if (ImGui::Button("Unload Script")) { if (m_lua && !ent.scriptPath.empty()) m_lua->unloadScript(ent.scriptPath); ent.scriptEnabled = false; }
-                        ImGui::Separator();
-                        ImGui::Text("PBR");
-                        ImGui::Checkbox("Use PBR", &ent.usePBR);
-                        ImGui::SliderFloat("Metallic", &ent.metallic, 0.0f, 1.0f);
-                        ImGui::SliderFloat("Roughness", &ent.roughness, 0.04f, 1.0f);
-                        ImGui::SliderFloat("AO", &ent.ao, 0.0f, 1.0f);
-                        static char texM[260] = ""; static char texR[260] = ""; static char texA[260] = "";
-                        if (ImGui::InputText("Metallic Tex", texM, sizeof(texM))) {}
-                        ImGui::SameLine(); if (ImGui::Button("Load M")) { if (texM[0]) ent.metallicTex = m_resources->getTextureFromFile(texM, false); }
-                        if (ImGui::InputText("Roughness Tex", texR, sizeof(texR))) {}
-                        ImGui::SameLine(); if (ImGui::Button("Load R")) { if (texR[0]) ent.roughnessTex = m_resources->getTextureFromFile(texR, false); }
-                        if (ImGui::InputText("AO Tex", texA, sizeof(texA))) {}
-                        ImGui::SameLine(); if (ImGui::Button("Load AO")) { if (texA[0]) ent.aoTex = m_resources->getTextureFromFile(texA, false); }
-                        static char texN[260] = "";
-                        if (ImGui::InputText("Normal Tex", texN, sizeof(texN))) {}
-                        ImGui::SameLine(); if (ImGui::Button("Load N")) { if (texN[0]) ent.normalTex = m_resources->getTextureFromFile(texN, false); }
+                    }
+                }
+                ImGui::End();
+            });
+
+            // Import & Animation
+            m_ui->registerPanel([this]()
+            {
+                if (ImGui::Begin("Import & Animation"))
+                {
+                    ImGui::Text("Model Import (OBJ/FBX/GLTF)");
+                    ImGui::InputText("Model Path", m_modelPath, sizeof(m_modelPath));
+                    if (ImGui::Button("Import Model") && m_modelPath[0] != '\0')
+                    {
+                        std::vector<ImportedMesh> ims;
+                        if (AssimpLoader::loadModel(m_resources.get(), m_modelPath, ims, true))
+                        {
+                            for (auto& im : ims)
+                            {
+                                std::unique_ptr<Mesh> owned(im.mesh);
+                                int e = m_scene->addEntity(im.name.empty()?"Imported":im.name, owned.get(), m_shader.get(), im.diffuse);
+                                m_scene->entities()[e].useTexture = (im.diffuse != nullptr);
+                                if (im.metal || im.rough || im.ao || im.normal)
+                                {
+                                    auto& ent = m_scene->entities()[e];
+                                    ent.usePBR = true;
+                                    if (im.metal) ent.metallicTex = im.metal;
+                                    if (im.rough) ent.roughnessTex = im.rough;
+                                    if (im.ao) ent.aoTex = im.ao;
+                                    if (im.normal) ent.normalTex = im.normal;
+                                }
+                                m_importedMeshes.push_back(std::move(owned));
+                            }
+                        }
+                    }
+                    ImGui::Separator();
+                    ImGui::Text("Skinned Import (GLTF/FBX)");
+                    ImGui::InputText("Skinned Path", m_skinPath, sizeof(m_skinPath));
+                    if (ImGui::Button("Import Skinned") && m_skinPath[0] != '\0')
+                    {
+                        ImportedSkinned isk;
+                        if (AssimpLoader::loadSkinned(m_resources.get(), m_skinPath, isk, true))
+                        {
+                            m_skinMesh.reset(isk.mesh);
+                            m_skinSkeleton.reset(isk.skeleton);
+                            m_skinDiffuse = isk.diffuse;
+                            m_skinAnimations = isk.animations ? *isk.animations : std::vector<Animation>();
+                            delete isk.animations;
+                            if (!m_skinAnimator) m_skinAnimator = std::make_unique<Animator>();
+                            if (!m_skinAnimations.empty())
+                            {
+                                m_skinAnimIndex = 0; m_skinPlaying = true; m_skinLoop = true;
+                                m_skinAnimator->play(&m_skinAnimations[0], m_skinLoop);
+                            }
+                        }
+                    }
+                    if (!m_skinAnimations.empty())
+                    {
+                        ImGui::Text("Animation");
+                        ImGui::SliderInt("Index", &m_skinAnimIndex, 0, (int)m_skinAnimations.size()-1);
+                        ImGui::SameLine();
+                        if (ImGui::Button("Play")) { m_skinPlaying = true; m_skinAnimator->play(&m_skinAnimations[m_skinAnimIndex], m_skinLoop); }
+                        ImGui::SameLine();
+                        if (ImGui::Button("Stop")) { m_skinPlaying = false; }
+                        ImGui::Checkbox("Loop", &m_skinLoop);
+                        ImGui::SliderFloat("Speed", &m_skinSpeed, 0.1f, 3.0f);
+                    }
+                }
+                ImGui::End();
+            });
+
+            // Tools
+            m_ui->registerPanel([this]()
+            {
+                if (ImGui::Begin("Tools"))
+                {
+                    ImGui::Text("Shader Reloader");
+                    ImGui::InputText("VS Path", m_vsPath, sizeof(m_vsPath));
+                    ImGui::InputText("FS Path", m_fsPath, sizeof(m_fsPath));
+                    if (ImGui::Button("Reload Shader") && m_vsPath[0] != '\0' && m_fsPath[0] != '\0')
+                    {
+                        auto loadFile = [](const char* path) -> std::string {
+                            FILE* f = nullptr; fopen_s(&f, path, "rb"); if (!f) return {}; fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET); std::string s; s.resize(sz); fread(s.data(), 1, sz, f); fclose(f); return s;
+                        };
+                        std::string vs = loadFile(m_vsPath);
+                        std::string fs = loadFile(m_fsPath);
+                        if (!vs.empty() && !fs.empty())
+                        {
+                            if (!m_shader->compileFromSource(vs, fs))
+                            {
+                                std::cerr << "[Shader] reload failed" << std::endl;
+                            }
+                        }
                     }
                 }
                 ImGui::End();
@@ -1347,10 +1503,7 @@ namespace engine
                             ImGui::SliderFloat("Restitution", &ent.restitution, 0.0f, 1.0f);
                             ImGui::DragFloat3("Box Half-Extents", ent.colliderHalf, 0.01f, 0.01f, 10.0f);
                             if (ImGui::Button("Apply Physics (Rebuild)"))
-                            {
-                                // apply to current selected entity
                                 createPhysicsForEntity(sel);
-                            }
                         }
                         ImGui::Separator();
                         // Mesh picker
