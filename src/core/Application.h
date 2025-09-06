@@ -28,6 +28,7 @@ namespace engine
     class Skeleton;
     class Animator;
     struct Animation;
+    class Terrain;
 
     class Application
     {
@@ -78,6 +79,19 @@ namespace engine
         std::unique_ptr<Animator> m_skinAnimator;
         std::vector<Animation> m_skinAnimations;
         Texture2D* m_skinDiffuse = nullptr;
+        // Terrain
+        std::unique_ptr<Terrain> m_terrain;
+        char m_heightPath[260] = "";
+        char m_splatCtrlPath[260] = "";
+        char m_splat0Path[260] = "";
+        char m_splat1Path[260] = "";
+        char m_splat2Path[260] = "";
+        char m_splat3Path[260] = "";
+        char m_normalPath[260] = "";
+        int m_terrainLOD = 0;
+        float m_terrainHeightScale = 20.0f;
+        float m_terrainSplatTiling = 16.0f;
+        float m_terrainCellWorld = 1.0f;
         ImVec4 m_clearColor = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
         bool m_showDemo = false;
         bool m_showAnother = false;

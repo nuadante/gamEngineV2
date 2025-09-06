@@ -33,6 +33,7 @@ add_executable(${PROJECT_NAME}
     src/render/AssimpLoader.cpp
     src/render/SkinnedMesh.cpp
     src/render/Animator.cpp
+    src/render/Terrain.cpp
     src/render/ParticleSystem.cpp
     src/core/ResourceManager.cpp
     src/scene/SceneSerializer.cpp

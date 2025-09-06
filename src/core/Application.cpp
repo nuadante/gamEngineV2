@@ -35,6 +35,7 @@
 #include "render/SkinnedMesh.h"
 #include "render/Skeleton.h"
 #include "render/Animator.h"
+#include "render/Terrain.h"
 
 namespace engine
 {
@@ -484,6 +485,11 @@ namespace engine
             return false;
         }
 
+        // Terrain
+        m_terrain = std::make_unique<Terrain>();
+        m_terrain->initialize(257); // 257x257 grid
+        m_terrain->setParams(m_terrainHeightScale, m_terrainSplatTiling, m_terrainCellWorld);
+
         // Scene setup
         m_scene = std::make_unique<Scene>();
         // Create multiple entities
@@ -634,6 +640,36 @@ namespace engine
                 ImGui::SliderFloat("Speed", &m_cameraSpeed, 0.1f, 20.0f);
                 ImGui::SliderFloat("Mouse Sensitivity", &m_mouseSensitivity, 0.01f, 1.0f);
                 ImGui::Separator();
+                ImGui::Text("Terrain");
+                ImGui::InputText("Heightmap", m_heightPath, sizeof(m_heightPath));
+                ImGui::InputText("SplatCtrl (RGBA)", m_splatCtrlPath, sizeof(m_splatCtrlPath));
+                ImGui::InputText("Splat0", m_splat0Path, sizeof(m_splat0Path));
+                ImGui::InputText("Splat1", m_splat1Path, sizeof(m_splat1Path));
+                ImGui::InputText("Splat2", m_splat2Path, sizeof(m_splat2Path));
+                ImGui::InputText("Splat3", m_splat3Path, sizeof(m_splat3Path));
+                ImGui::InputText("NormalMap", m_normalPath, sizeof(m_normalPath));
+                if (ImGui::Button("Load Terrain Textures"))
+                {
+                    if (m_terrain)
+                    {
+                        if (m_heightPath[0]) m_terrain->setHeightmap(m_resources->getTextureFromFile(m_heightPath, false));
+                        if (m_splatCtrlPath[0]) m_terrain->setSplatControl(m_resources->getTextureFromFile(m_splatCtrlPath, false));
+                        if (m_splat0Path[0]) m_terrain->setSplatTexture(0, m_resources->getTextureFromFile(m_splat0Path, false));
+                        if (m_splat1Path[0]) m_terrain->setSplatTexture(1, m_resources->getTextureFromFile(m_splat1Path, false));
+                        if (m_splat2Path[0]) m_terrain->setSplatTexture(2, m_resources->getTextureFromFile(m_splat2Path, false));
+                        if (m_splat3Path[0]) m_terrain->setSplatTexture(3, m_resources->getTextureFromFile(m_splat3Path, false));
+                        if (m_normalPath[0]) m_terrain->setNormalMap(m_resources->getTextureFromFile(m_normalPath, false));
+                    }
+                }
+                ImGui::SliderInt("LOD", &m_terrainLOD, 0, 2);
+                ImGui::SliderFloat("Height Scale", &m_terrainHeightScale, 1.0f, 200.0f);
+                ImGui::SliderFloat("Splat Tiling", &m_terrainSplatTiling, 1.0f, 64.0f);
+                ImGui::SliderFloat("Cell World Size", &m_terrainCellWorld, 0.25f, 8.0f);
+                if (m_terrain)
+                {
+                    m_terrain->setLOD(m_terrainLOD);
+                    m_terrain->setParams(m_terrainHeightScale, m_terrainSplatTiling, m_terrainCellWorld);
+                }
                 ImGui::Text("Input Mapping");
                 auto drawRebind = [&](const char* axisName){
                     auto a = m_inputMap->axis(axisName);
@@ -1223,6 +1259,18 @@ namespace engine
 
             // Draw skybox last
             m_skybox->draw(m_camera->projection(), m_camera->view(), {m_skyTop[0], m_skyTop[1], m_skyTop[2]}, {m_skyBottom[0], m_skyBottom[1], m_skyBottom[2]});
+
+            // Terrain draw
+            if (m_terrain)
+            {
+                m_terrain->draw(
+                    m_camera->projection(),
+                    m_camera->view(),
+                    m_camera->position(),
+                    glm::vec3(m_lightPos[0], m_lightPos[1], m_lightPos[2]),
+                    glm::vec3(m_lightColor[0], m_lightColor[1], m_lightColor[2])
+                );
+            }
 
             // Update & draw particles (after opaque)
             if (m_particles)
