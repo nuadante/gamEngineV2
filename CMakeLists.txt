@@ -15,6 +15,7 @@ find_package(physx REQUIRED)
 find_package(assimp REQUIRED)
 find_package(lua REQUIRED)
 find_package(OpenAL REQUIRED)
+find_package(EnTT REQUIRED)
 
 # Create executable
 add_executable(${PROJECT_NAME}
@@ -45,6 +46,7 @@ add_executable(${PROJECT_NAME}
     src/scripting/LuaEngine.cpp
     src/audio/AudioEngine.cpp
     src/ui/UIManager.cpp
+    src/ecs/ECS.h
     src/scene/Scene.h
     src/scene/Transform.h
 )
@@ -62,6 +64,7 @@ target_link_libraries(${PROJECT_NAME}
     assimp::assimp
     lua::lua
     OpenAL::OpenAL
+    EnTT::EnTT
 )
 
 # Include directories

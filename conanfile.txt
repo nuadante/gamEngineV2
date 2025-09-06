@@ -9,6 +9,7 @@ physx/4.1.2
 assimp/5.4.3
 openal-soft/1.23.1
 lua/5.4.6
+entt/3.15.0
 
 [generators]
 CMakeDeps

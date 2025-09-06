@@ -29,6 +29,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/quaternion.hpp>
+#include <glm/gtx/euler_angles.hpp>
 #include "core/Time.h"
 #include "physics/Physics.h"
 #include <PxPhysicsAPI.h>
@@ -40,9 +41,21 @@
 #include "scripting/LuaEngine.h"
 #include "audio/AudioEngine.h"
 #include "render/IBL.h"
+#include "ecs/ECS.h"
 
 namespace engine
 {
+    // ECS UI panel toggles (file-scope statics)
+    static bool g_panelHierarchyECS = true;
+    static bool g_panelInspectorECS = true;
+    class ECSBridge {
+    public:
+        ECSBridge() : ecs(std::make_unique<ECS>()) {}
+        entt::registry& reg() { return ecs->registry; }
+        ECS& data() { return *ecs; }
+    private:
+        std::unique_ptr<ECS> ecs;
+    };
     static void normalizePlane(float p[4])
     {
         float len = sqrtf(p[0]*p[0]+p[1]*p[1]+p[2]*p[2]);
@@ -581,14 +594,28 @@ namespace engine
 
         // Scene setup
         m_scene = std::make_unique<Scene>();
-        // Create multiple entities
-        int e0 = m_scene->addEntity("Cube 0", m_cube.get(), m_shader.get(), m_texture.get());
-        int e1 = m_scene->addEntity("Cube 1", m_cube.get(), m_shader.get(), m_texture.get());
-        int e2 = m_scene->addEntity("Cube 2", m_cube.get(), m_shader.get(), m_texture.get());
-        // offset positions
-        m_scene->entities()[e0].transform.position = { -1.2f, 0.0f, 0.0f };
-        m_scene->entities()[e1].transform.position = {  0.0f, 0.0f, 0.0f };
-        m_scene->entities()[e2].transform.position = {  1.2f, 0.0f, 0.0f };
+        // ECS setup (coexists for now)
+        m_ecsBridge = std::make_unique<ECSBridge>();
+        {
+            auto& reg = m_ecsBridge->reg();
+            // Create three cubes in ECS for hierarchy/inspector demo
+            auto e0 = m_ecsBridge->data().createEntity("Cube 0");
+            auto e1 = m_ecsBridge->data().createEntity("Cube 1");
+            auto e2 = m_ecsBridge->data().createEntity("Cube 2");
+            reg.emplace<MeshRendererC>(e0, MeshRendererC{ m_cube.get(), nullptr, m_texture.get(), false });
+            reg.emplace<MeshRendererC>(e1, MeshRendererC{ m_cube.get(), nullptr, m_texture.get(), false });
+            reg.emplace<MeshRendererC>(e2, MeshRendererC{ m_cube.get(), nullptr, m_texture.get(), false });
+            reg.get<TransformC>(e0).position = { -1.2f, 0.0f, 0.0f };
+            reg.get<TransformC>(e1).position = {  0.0f, 0.0f, 0.0f };
+            reg.get<TransformC>(e2).position = {  1.2f, 0.0f, 0.0f };
+        }
+        // Keep legacy Scene in sync for rendering path
+        int s0 = m_scene->addEntity("Cube 0", m_cube.get(), m_shader.get(), m_texture.get());
+        int s1 = m_scene->addEntity("Cube 1", m_cube.get(), m_shader.get(), m_texture.get());
+        int s2 = m_scene->addEntity("Cube 2", m_cube.get(), m_shader.get(), m_texture.get());
+        m_scene->entities()[s0].transform.position = { -1.2f, 0.0f, 0.0f };
+        m_scene->entities()[s1].transform.position = {  0.0f, 0.0f, 0.0f };
+        m_scene->entities()[s2].transform.position = {  1.2f, 0.0f, 0.0f };
 
         // Physics setup
         m_physics = std::make_unique<Physics>();
@@ -705,6 +732,8 @@ namespace engine
                     ImGui::ColorEdit3("Clear Color", (float*)&m_clearColor);
                     ImGui::Checkbox("VSync", &m_vsync);
                     ImGui::Checkbox("Wireframe", &m_wireframe);
+                    ImGui::Separator();
+                    ImGui::Checkbox("Render From ECS", &m_renderFromECS);
                 }
                 ImGui::End();
             }, &m_panelGeneral);
@@ -1111,9 +1140,123 @@ namespace engine
                 ImGui::Checkbox("Input Mapping", &m_panelInput);
                 ImGui::Checkbox("Import & Animation", &m_panelImport);
                 ImGui::Checkbox("Tools", &m_panelTools);
+                ImGui::Separator();
+                ImGui::Text("ECS Panels");
+                ImGui::Checkbox("Hierarchy (ECS)", &g_panelHierarchyECS);
+                ImGui::Checkbox("Inspector (ECS)", &g_panelInspectorECS);
             }
             ImGui::End();
             if (m_ui) m_ui->drawPanels();
+
+            // --- ECS Hierarchy ---
+            if (m_ecsBridge)
+            {
+                static entt::entity ecsSelected = entt::null;
+                auto& reg = m_ecsBridge->reg();
+                if (g_panelHierarchyECS)
+                {
+                    if (ImGui::Begin("Hierarchy (ECS)", &g_panelHierarchyECS))
+                    {
+                        auto view = reg.view<TagC>();
+                        for (auto e : view)
+                        {
+                            const auto& tag = view.get<TagC>(e);
+                            const char* name = tag.name.c_str();
+                            bool hasMesh = reg.any_of<MeshRendererC>(e);
+                            bool hasLight = reg.any_of<DirectionalLightC, PointLightC>(e);
+                            bool hasPart = reg.any_of<ParticleEmitterC>(e);
+                            std::string label = std::string(hasMesh?"[M]": hasLight?"[L]": hasPart?"[P]":"[ ]") + " " + name;
+                            bool sel = (ecsSelected==e);
+                            if (ImGui::Selectable(label.c_str(), sel)) ecsSelected = e;
+                        }
+                    }
+                    ImGui::End();
+                }
+                if (g_panelInspectorECS && ecsSelected!=entt::null)
+                {
+                    if (ImGui::Begin("Inspector (ECS)", &g_panelInspectorECS))
+                    {
+                        // Name
+                        if (auto tag = reg.try_get<TagC>(ecsSelected))
+                        {
+                            static char buf[128];
+                            strncpy_s(buf, tag->name.c_str(), sizeof(buf)-1);
+                            if (ImGui::InputText("Name", buf, sizeof(buf))) tag->name = buf;
+                        }
+                        // Transform
+                        if (auto tr = reg.try_get<TransformC>(ecsSelected))
+                        {
+                            ImGui::DragFloat3("Position", &tr->position.x, 0.01f);
+                            ImGui::DragFloat3("Rotation", &tr->rotationEuler.x, 0.1f);
+                            ImGui::DragFloat3("Scale", &tr->scale.x, 0.01f);
+                        }
+                        // Components toggle
+                        bool hasMesh = reg.any_of<MeshRendererC>(ecsSelected);
+                        bool hasDirL = reg.any_of<DirectionalLightC>(ecsSelected);
+                        bool hasPtL  = reg.any_of<PointLightC>(ecsSelected);
+                        bool hasSpL  = reg.any_of<SpotLightC>(ecsSelected);
+                        bool hasPE   = reg.any_of<ParticleEmitterC>(ecsSelected);
+                        if (ImGui::CollapsingHeader("Components"))
+                        {
+                            if (ImGui::Checkbox("MeshRenderer", &hasMesh)) { if (hasMesh) reg.emplace<MeshRendererC>(ecsSelected); else if (reg.any_of<MeshRendererC>(ecsSelected)) reg.remove<MeshRendererC>(ecsSelected);} 
+                            if (ImGui::Checkbox("DirectionalLight", &hasDirL)) { if (hasDirL) reg.emplace<DirectionalLightC>(ecsSelected); else if (reg.any_of<DirectionalLightC>(ecsSelected)) reg.remove<DirectionalLightC>(ecsSelected);} 
+                            if (ImGui::Checkbox("PointLight", &hasPtL)) { if (hasPtL) reg.emplace<PointLightC>(ecsSelected); else if (reg.any_of<PointLightC>(ecsSelected)) reg.remove<PointLightC>(ecsSelected);} 
+                            if (ImGui::Checkbox("SpotLight", &hasSpL)) { if (hasSpL) reg.emplace<SpotLightC>(ecsSelected); else if (reg.any_of<SpotLightC>(ecsSelected)) reg.remove<SpotLightC>(ecsSelected);} 
+                            if (ImGui::Checkbox("ParticleEmitter", &hasPE)) { if (hasPE) reg.emplace<ParticleEmitterC>(ecsSelected); else if (reg.any_of<ParticleEmitterC>(ecsSelected)) reg.remove<ParticleEmitterC>(ecsSelected);} 
+                        }
+                        // Per-component UIs (minimal)
+                        if (auto mr = reg.try_get<MeshRendererC>(ecsSelected))
+                        {
+                            ImGui::Text("MeshRenderer");
+                            ImGui::Checkbox("Use PBR", &mr->usePBR);
+                            // Material asset path
+                            static char matBuf[260];
+                            strncpy_s(matBuf, mr->materialPath.c_str(), sizeof(matBuf)-1);
+                            if (ImGui::InputText("Material Asset", matBuf, sizeof(matBuf)))
+                            {
+                                mr->materialPath = matBuf;
+                            }
+                            if (ImGui::Button("Load Material") && !mr->materialPath.empty() && m_resources)
+                            {
+                                if (auto* mat = m_resources->getMaterialFromFile(mr->materialPath))
+                                {
+                                    mr->material = mat;
+                                    if (mat->albedoTex) mr->albedoTex = mat->albedoTex;
+                                    mr->usePBR = true;
+                                }
+                            }
+                        }
+                        if (auto dl = reg.try_get<DirectionalLightC>(ecsSelected))
+                        {
+                            ImGui::ColorEdit3("DirLight Color", &dl->color.x);
+                            ImGui::DragFloat("Intensity", &dl->intensity, 0.01f, 0.0f, 10.0f);
+                            ImGui::DragFloat3("Direction", &dl->direction.x, 0.01f);
+                        }
+                        if (auto pl = reg.try_get<PointLightC>(ecsSelected))
+                        {
+                            ImGui::ColorEdit3("Point Color", &pl->color.x);
+                            ImGui::DragFloat("Intensity", &pl->intensity, 0.01f, 0.0f, 10.0f);
+                            ImGui::DragFloat("Range", &pl->range, 0.1f, 0.1f, 200.0f);
+                        }
+                        if (auto sl = reg.try_get<SpotLightC>(ecsSelected))
+                        {
+                            ImGui::ColorEdit3("Spot Color", &sl->color.x);
+                            ImGui::DragFloat("Intensity", &sl->intensity, 0.01f, 0.0f, 10.0f);
+                            ImGui::DragFloat3("Direction", &sl->direction.x, 0.01f);
+                            ImGui::DragFloat("Inner (deg)", &sl->innerDegrees, 0.1f, 1.0f, 89.0f);
+                            ImGui::DragFloat("Outer (deg)", &sl->outerDegrees, 0.1f, 1.0f, 89.0f);
+                            ImGui::DragFloat("Near", &sl->nearPlane, 0.01f, 0.01f, 5.0f);
+                            ImGui::DragFloat("Far", &sl->farPlane, 0.1f, 1.0f, 200.0f);
+                        }
+                        if (auto pe = reg.try_get<ParticleEmitterC>(ecsSelected))
+                        {
+                            ImGui::Checkbox("Emit", &pe->emit);
+                            ImGui::DragFloat("Rate", &pe->rate, 1.0f, 0.0f, 1000.0f);
+                        }
+                    }
+                    ImGui::End();
+                }
+            }
 
             // Defer ImGui::Render() until after gizmo manipulation is submitted
             int display_w, display_h;
@@ -1207,6 +1350,33 @@ namespace engine
 
             // Lua update
             if (m_lua) m_lua->onUpdate(dt);
+            // Pull lighting from ECS (first directional + first point)
+            if (m_renderFromECS && m_ecsBridge)
+            {
+                auto& reg = m_ecsBridge->reg();
+                auto vdir = reg.view<DirectionalLightC>();
+                for (auto e : vdir)
+                {
+                    const auto& dl = vdir.get<DirectionalLightC>(e);
+                    glm::vec3 dir = glm::normalize(dl.direction);
+                    if (glm::length(dir) < 1e-3f) dir = glm::vec3(-0.5f,-1.0f,-0.3f);
+                    glm::vec3 pos = -dir * 10.0f;
+                    m_lightPos[0]=pos.x; m_lightPos[1]=pos.y; m_lightPos[2]=pos.z;
+                    m_lightColor[0]=dl.color.x * dl.intensity; m_lightColor[1]=dl.color.y * dl.intensity; m_lightColor[2]=dl.color.z * dl.intensity;
+                    break;
+                }
+                auto vpl = reg.view<PointLightC, TransformC>();
+                for (auto e : vpl)
+                {
+                    const auto& pl = vpl.get<PointLightC>(e);
+                    const auto& tr = vpl.get<TransformC>(e);
+                    m_pointShadowEnabled = true;
+                    m_pointLightPos[0]=tr.position.x; m_pointLightPos[1]=tr.position.y; m_pointLightPos[2]=tr.position.z;
+                    m_pointLightColor[0]=pl.color.x*pl.intensity; m_pointLightColor[1]=pl.color.y*pl.intensity; m_pointLightColor[2]=pl.color.z*pl.intensity;
+                    m_pointShadowFar = std::max(1.0f, pl.range);
+                    break;
+                }
+            }
 
             // Shadow pass (directional light with orthographic proj)
             glm::mat4 lightView = glm::lookAt(
@@ -1220,13 +1390,35 @@ namespace engine
                 if (!m_csmEnabled)
                 {
                     m_shadowMap->begin();
-                    for (const auto& e : m_scene->getEntities())
+                    if (m_renderFromECS && m_ecsBridge)
                     {
-                        glm::mat4 model = e.transform.modelMatrix();
-                        m_depthShader->bind();
-                        m_depthShader->setMat4("u_LightVP", &lightVP[0][0]);
-                        m_depthShader->setMat4("u_Model", &model[0][0]);
-                        e.mesh->draw();
+                        auto& reg = m_ecsBridge->reg();
+                        auto v = reg.view<TransformC, MeshRendererC>();
+                        for (auto ent : v)
+                        {
+                            const auto& tr = v.get<TransformC>(ent);
+                            const auto& mr = v.get<MeshRendererC>(ent);
+                            if (!mr.mesh) continue;
+                            glm::mat4 T = glm::translate(glm::mat4(1.0f), tr.position);
+                            glm::mat4 R = glm::yawPitchRoll(tr.rotationEuler.y, tr.rotationEuler.x, tr.rotationEuler.z);
+                            glm::mat4 S = glm::scale(glm::mat4(1.0f), tr.scale);
+                            glm::mat4 model = T * R * S;
+                            m_depthShader->bind();
+                            m_depthShader->setMat4("u_LightVP", &lightVP[0][0]);
+                            m_depthShader->setMat4("u_Model", &model[0][0]);
+                            mr.mesh->draw();
+                        }
+                    }
+                    else
+                    {
+                        for (const auto& e : m_scene->getEntities())
+                        {
+                            glm::mat4 model = e.transform.modelMatrix();
+                            m_depthShader->bind();
+                            m_depthShader->setMat4("u_LightVP", &lightVP[0][0]);
+                            m_depthShader->setMat4("u_Model", &model[0][0]);
+                            e.mesh->draw();
+                        }
                     }
                     m_depthShader->unbind();
                     m_shadowMap->end(display_w, display_h);
@@ -1301,6 +1493,31 @@ namespace engine
                 glm::vec3(0,1,0));
             glm::mat4 spotProj = glm::perspective(glm::radians(m_spotOuter * 2.0f), 1.0f, m_spotNear, m_spotFar);
             glm::mat4 spotVP = spotProj * spotView;
+            // If ECS has a SpotLight, map the first one into legacy variables for shader
+            if (m_renderFromECS && m_ecsBridge)
+            {
+                auto& reg = m_ecsBridge->reg();
+                auto vsl = reg.view<SpotLightC, TransformC>();
+                for (auto e : vsl)
+                {
+                    const auto& sl = vsl.get<SpotLightC>(e);
+                    const auto& tr = vsl.get<TransformC>(e);
+                    glm::vec3 pos = tr.position;
+                    glm::vec3 dir = glm::normalize(sl.direction);
+                    m_spotEnabled = true;
+                    m_spotPos[0]=pos.x; m_spotPos[1]=pos.y; m_spotPos[2]=pos.z;
+                    m_spotDir[0]=dir.x; m_spotDir[1]=dir.y; m_spotDir[2]=dir.z;
+                    m_spotColor[0]=sl.color.x*sl.intensity; m_spotColor[1]=sl.color.y*sl.intensity; m_spotColor[2]=sl.color.z*sl.intensity;
+                    m_spotInner = sl.innerDegrees; m_spotOuter = sl.outerDegrees; m_spotNear = sl.nearPlane; m_spotFar = sl.farPlane;
+                    spotView = glm::lookAt(
+                        glm::vec3(m_spotPos[0], m_spotPos[1], m_spotPos[2]),
+                        glm::vec3(m_spotPos[0], m_spotPos[1], m_spotPos[2]) + glm::normalize(glm::vec3(m_spotDir[0], m_spotDir[1], m_spotDir[2])),
+                        glm::vec3(0,1,0));
+                    spotProj = glm::perspective(glm::radians(m_spotOuter * 2.0f), 1.0f, m_spotNear, m_spotFar);
+                    spotVP = spotProj * spotView;
+                    break;
+                }
+            }
             if (m_spotEnabled && !m_wireframe)
             {
                 m_shadowMap->begin();
@@ -1375,152 +1592,109 @@ namespace engine
                 }
             }
 
-            // Render scene
-            for (size_t ei=0; ei<m_scene->getEntities().size(); ++ei)
+            // Render scene: optionally from ECS registry (MeshRendererC + TransformC)
+            if (m_renderFromECS && m_ecsBridge)
             {
-                const auto& e = m_scene->getEntities()[ei];
-                if (m_frustumCulling && ei < m_frustumVisible.size() && m_frustumVisible[ei]==0) continue;
-                glm::mat4 model = e.transform.modelMatrix();
-                glm::mat4 mvp = m_camera->projection() * m_camera->view() * model;
-                glm::mat3 normalMat = glm::mat3(glm::transpose(glm::inverse(model)));
-
-                if (e.usePBR && m_pbrShader)
+                auto& reg = m_ecsBridge->reg();
+                auto view = reg.view<TransformC, MeshRendererC>();
+                for (auto e : view)
                 {
-                    m_pbrShader->bind();
-                    m_pbrShader->setMat4("u_MVP", &mvp[0][0]);
-                    m_pbrShader->setMat4("u_Model", &model[0][0]);
-                    m_pbrShader->setMat3("u_NormalMatrix", &normalMat[0][0]);
-                    m_pbrShader->setVec3("u_Cam", m_camera->position().x, m_camera->position().y, m_camera->position().z);
-                    m_pbrShader->setVec3("u_LightPos", m_lightPos[0], m_lightPos[1], m_lightPos[2]);
-                    m_pbrShader->setVec3("u_Albedo", e.albedo[0], e.albedo[1], e.albedo[2]);
-                    m_pbrShader->setFloat("u_Metallic", e.metallic);
-                    m_pbrShader->setFloat("u_Roughness", e.roughness);
-                    m_pbrShader->setFloat("u_AO", e.ao);
-                    int useAlbedoTex = (e.useTexture && e.albedoTex) ? 1 : 0;
-                    m_pbrShader->setInt("u_UseAlbedoTex", useAlbedoTex);
-                    if (useAlbedoTex) { m_pbrShader->setInt("u_AlbedoTex", 0); e.albedoTex->bind(0); }
-                    int useM = (e.metallicTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseMetalTex", useM); if (useM){ m_pbrShader->setInt("u_MetalTex",1); e.metallicTex->bind(1);} 
-                    int useR = (e.roughnessTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseRoughTex", useR); if (useR){ m_pbrShader->setInt("u_RoughTex",2); e.roughnessTex->bind(2);} 
-                    int useA = (e.aoTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseAOTex", useA); if (useA){ m_pbrShader->setInt("u_AOTex",3); e.aoTex->bind(3);} 
-                    int useN = (e.normalTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseNormalMap", useN); if (useN){ m_pbrShader->setInt("u_NormalTex",4); e.normalTex->bind(4);} 
-                    if (m_useIBL && m_ibl && m_ibl->valid())
+                    const auto& tr = view.get<TransformC>(e);
+                    const auto& mr = view.get<MeshRendererC>(e);
+                    if (!mr.mesh) continue;
+                    glm::mat4 T = glm::translate(glm::mat4(1.0f), tr.position);
+                    glm::mat4 R = glm::yawPitchRoll(tr.rotationEuler.y, tr.rotationEuler.x, tr.rotationEuler.z);
+                    glm::mat4 S = glm::scale(glm::mat4(1.0f), tr.scale);
+                    glm::mat4 model = T * R * S;
+                    glm::mat4 mvp = m_camera->projection() * m_camera->view() * model;
+                    glm::mat3 normalMat = glm::mat3(glm::transpose(glm::inverse(model)));
+                    // PBR shader path with IBL + optional CSM
+                    if (m_pbrShader)
                     {
-                        m_pbrShader->setInt("u_UseIBL", 1);
-                        m_pbrShader->setInt("u_IrradianceMap", 5); glActiveTexture(GL_TEXTURE0+5); glBindTexture(GL_TEXTURE_CUBE_MAP, m_ibl->irradianceMap());
-                        m_pbrShader->setInt("u_PrefilterMap", 6); glActiveTexture(GL_TEXTURE0+6); glBindTexture(GL_TEXTURE_CUBE_MAP, m_ibl->prefilterMap());
-                        m_pbrShader->setInt("u_BRDFLUT", 7); glActiveTexture(GL_TEXTURE0+7); glBindTexture(GL_TEXTURE_2D, m_ibl->brdfLUT());
-                    }
-                    else m_pbrShader->setInt("u_UseIBL", 0);
-                    // Shadows PCF/PCSS + CSM
-                    m_pbrShader->setInt("u_ShadowsEnabled", m_shadowsEnabled ? 1 : 0);
-                    if (!m_csmEnabled)
-                    {
-                        m_pbrShader->setInt("u_UseCSM", 0);
-                        m_pbrShader->setMat4("u_LightVP", &lightVP[0][0]);
-                        m_pbrShader->setFloat("u_ShadowBias", m_shadowBias);
-                        m_shadowMap->bindDepthTexture(8);
-                        m_pbrShader->setInt("u_ShadowMap", 8);
-                        m_pbrShader->setInt("u_PCFKernel", m_usePCF ? m_pcfKernel : 0);
-                        m_pbrShader->setFloat("u_ShadowMapSize", (float)m_shadowMapSize);
-                        m_pbrShader->setInt("u_UsePCSS", m_usePCSS ? 1 : 0);
-                        m_pbrShader->setFloat("u_LightRadius", m_lightRadius);
-                    }
-                    else
-                    {
-                        m_pbrShader->setInt("u_UseCSM", 1);
-                        int cascades = m_cascadeCount;
-                        for (int c = 0; c < cascades; ++c)
+                        m_pbrShader->bind();
+                        m_pbrShader->setMat4("u_MVP", &mvp[0][0]);
+                        m_pbrShader->setMat4("u_Model", &model[0][0]);
+                        m_pbrShader->setMat3("u_NormalMatrix", &normalMat[0][0]);
+                        m_pbrShader->setVec3("u_Cam", m_camera->position().x, m_camera->position().y, m_camera->position().z);
+                        m_pbrShader->setVec3("u_LightPos", m_lightPos[0], m_lightPos[1], m_lightPos[2]);
+                        m_pbrShader->setVec3("u_Albedo", 1.0f, 1.0f, 1.0f);
+                        m_pbrShader->setFloat("u_Metallic", 0.0f);
+                        m_pbrShader->setFloat("u_Roughness", 0.8f);
+                        m_pbrShader->setFloat("u_AO", 1.0f);
+                        int useAlbedoTex = (mr.albedoTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseAlbedoTex", useAlbedoTex); if (useAlbedoTex){ m_pbrShader->setInt("u_AlbedoTex",0); mr.albedoTex->bind(0);} 
+                        m_pbrShader->setInt("u_UseMetalTex", 0);
+                        m_pbrShader->setInt("u_UseRoughTex", 0);
+                        m_pbrShader->setInt("u_UseAOTex", 0);
+                        m_pbrShader->setInt("u_UseNormalMap", 0);
+                        if (m_useIBL && m_ibl && m_ibl->valid())
                         {
-                            char name[32]; sprintf_s(name, "u_CascadeVP[%d]", c);
-                            m_pbrShader->setMat4(name, m_cascadeMatrices[c]);
-                            m_csm->bindCascade(c, 8 + c);
-                            char smp[32]; sprintf_s(smp, "u_CascadeMap[%d]", c);
-                            m_pbrShader->setInt(smp, 8 + c);
+                            m_pbrShader->setInt("u_UseIBL", 1);
+                            m_pbrShader->setInt("u_IrradianceMap", 5); glActiveTexture(GL_TEXTURE0+5); glBindTexture(GL_TEXTURE_CUBE_MAP, m_ibl->irradianceMap());
+                            m_pbrShader->setInt("u_PrefilterMap", 6); glActiveTexture(GL_TEXTURE0+6); glBindTexture(GL_TEXTURE_CUBE_MAP, m_ibl->prefilterMap());
+                            m_pbrShader->setInt("u_BRDFLUT", 7); glActiveTexture(GL_TEXTURE0+7); glBindTexture(GL_TEXTURE_2D, m_ibl->brdfLUT());
                         }
-                        m_pbrShader->setInt("u_CascadeCount", cascades);
-                        m_pbrShader->setFloat("u_ShadowBias", m_shadowBias);
-                        m_pbrShader->setInt("u_PCFKernel", m_usePCF ? m_pcfKernel : 0);
-                        m_pbrShader->setFloat("u_ShadowMapSize", (float)m_csmSize);
-                        m_pbrShader->setInt("u_UsePCSS", m_usePCSS ? 1 : 0);
-                        m_pbrShader->setFloat("u_LightRadius", m_lightRadius);
+                        else m_pbrShader->setInt("u_UseIBL", 0);
+                        m_pbrShader->setInt("u_ShadowsEnabled", (m_shadowsEnabled && !m_wireframe) ? 1 : 0);
+                        if (!m_csmEnabled)
+                        {
+                            m_pbrShader->setInt("u_UseCSM", 0);
+                            m_pbrShader->setMat4("u_LightVP", &lightVP[0][0]);
+                            m_pbrShader->setFloat("u_ShadowBias", m_shadowBias);
+                            m_shadowMap->bindDepthTexture(8);
+                            m_pbrShader->setInt("u_ShadowMap", 8);
+                            m_pbrShader->setInt("u_PCFKernel", m_usePCF ? m_pcfKernel : 0);
+                            m_pbrShader->setFloat("u_ShadowMapSize", (float)m_shadowMapSize);
+                            m_pbrShader->setInt("u_UsePCSS", m_usePCSS ? 1 : 0);
+                            m_pbrShader->setFloat("u_LightRadius", m_lightRadius);
+                        }
+                        else
+                        {
+                            m_pbrShader->setInt("u_UseCSM", 1);
+                            int cascades = m_cascadeCount;
+                            for (int c = 0; c < cascades; ++c)
+                            {
+                                char name[32]; sprintf_s(name, "u_CascadeVP[%d]", c);
+                                m_pbrShader->setMat4(name, m_cascadeMatrices[c]);
+                                m_csm->bindCascade(c, 8 + c);
+                                char smp[32]; sprintf_s(smp, "u_CascadeMap[%d]", c);
+                                m_pbrShader->setInt(smp, 8 + c);
+                            }
+                            m_pbrShader->setInt("u_CascadeCount", cascades);
+                            m_pbrShader->setFloat("u_ShadowBias", m_shadowBias);
+                            m_pbrShader->setInt("u_PCFKernel", m_usePCF ? m_pcfKernel : 0);
+                            m_pbrShader->setFloat("u_ShadowMapSize", (float)m_csmSize);
+                            m_pbrShader->setInt("u_UsePCSS", m_usePCSS ? 1 : 0);
+                            m_pbrShader->setFloat("u_LightRadius", m_lightRadius);
+                        }
+                        mr.mesh->draw();
+                        m_pbrShader->unbind();
                     }
+                }
+            }
+            else
+            {
+                for (size_t ei=0; ei<m_scene->getEntities().size(); ++ei)
+                {
+                    const auto& e = m_scene->getEntities()[ei];
+                    if (m_frustumCulling && ei < m_frustumVisible.size() && m_frustumVisible[ei]==0) continue;
+                    glm::mat4 model = e.transform.modelMatrix();
+                    glm::mat4 mvp = m_camera->projection() * m_camera->view() * model;
+                    glm::mat3 normalMat = glm::mat3(glm::transpose(glm::inverse(model)));
+                    e.shader->bind();
+                    e.shader->setMat4("u_MVP", &mvp[0][0]);
+                    e.shader->setMat4("u_Model", &model[0][0]);
+                    e.shader->setMat3("u_NormalMatrix", &normalMat[0][0]);
+                    e.shader->setVec3("u_CameraPos", m_camera->position().x, m_camera->position().y, m_camera->position().z);
+                    e.shader->setVec3("u_LightPos", m_lightPos[0], m_lightPos[1], m_lightPos[2]);
+                    e.shader->setVec3("u_LightColor", m_lightColor[0], m_lightColor[1], m_lightColor[2]);
+                    e.shader->setVec3("u_Albedo", e.albedo[0], e.albedo[1], e.albedo[2]);
+                    e.shader->setFloat("u_Shininess", e.shininess);
+                    if (e.useTexture && e.albedoTex)
+                    { e.shader->setInt("u_UseTexture", 1); e.shader->setInt("u_AlbedoTex", 0); e.albedoTex->bind(0);} else { e.shader->setInt("u_UseTexture", 0); }
+                    e.shader->setInt("u_ShadowsEnabled", 0);
                     e.mesh->draw();
-                    m_pbrShader->unbind();
-                    continue;
+                    e.shader->unbind();
                 }
-
-                e.shader->bind();
-                e.shader->setMat4("u_MVP", &mvp[0][0]);
-                e.shader->setMat4("u_Model", &model[0][0]);
-                e.shader->setMat3("u_NormalMatrix", &normalMat[0][0]);
-                e.shader->setVec3("u_CameraPos", m_camera->position().x, m_camera->position().y, m_camera->position().z);
-                e.shader->setVec3("u_LightPos", m_lightPos[0], m_lightPos[1], m_lightPos[2]);
-                e.shader->setVec3("u_LightColor", m_lightColor[0], m_lightColor[1], m_lightColor[2]);
-                e.shader->setVec3("u_Albedo", e.albedo[0], e.albedo[1], e.albedo[2]);
-                e.shader->setFloat("u_Shininess", e.shininess);
-                if (e.useTexture && e.albedoTex)
-                {
-                    e.shader->setInt("u_UseTexture", 1);
-                    e.shader->setInt("u_AlbedoTex", 0);
-                    e.albedoTex->bind(0);
-                }
-                else
-                {
-                    e.shader->setInt("u_UseTexture", 0);
-                }
-                // shadows
-                e.shader->setInt("u_ShadowsEnabled", m_shadowsEnabled ? 1 : 0);
-                if (!m_csmEnabled)
-                {
-                    e.shader->setMat4("u_LightVP", &lightVP[0][0]);
-                    e.shader->setFloat("u_ShadowBias", m_shadowBias);
-                    m_shadowMap->bindDepthTexture(1);
-                    e.shader->setInt("u_ShadowMap", 1);
-                    e.shader->setInt("u_UseCSM", 0);
-                    e.shader->setInt("u_PCFKernel", m_usePCF ? m_pcfKernel : 0);
-                    e.shader->setFloat("u_ShadowMapSize", (float)m_shadowMapSize);
-                    e.shader->setInt("u_UsePCSS", m_usePCSS ? 1 : 0);
-                    e.shader->setFloat("u_LightRadius", m_lightRadius);
-                }
-                else
-                {
-                    int cascades = m_cascadeCount;
-                    for (int c = 0; c < cascades; ++c)
-                    {
-                        char name[32]; sprintf_s(name, "u_CascadeVP[%d]", c);
-                        e.shader->setMat4(name, m_cascadeMatrices[c]);
-                        m_csm->bindCascade(c, 1 + c);
-                        char smp[32]; sprintf_s(smp, "u_CascadeMap[%d]", c);
-                        e.shader->setInt(smp, 1 + c);
-                    }
-                    e.shader->setInt("u_CascadeCount", cascades);
-                    e.shader->setInt("u_UseCSM", 1);
-                    e.shader->setFloat("u_ShadowBias", m_shadowBias);
-                    e.shader->setInt("u_PCFKernel", m_usePCF ? m_pcfKernel : 0);
-                    e.shader->setFloat("u_ShadowMapSize", (float)m_csmSize);
-                    e.shader->setInt("u_UsePCSS", m_usePCSS ? 1 : 0);
-                    e.shader->setFloat("u_LightRadius", m_lightRadius);
-                }
-                // spot
-                e.shader->setInt("u_SpotEnabled", m_spotEnabled ? 1 : 0);
-                e.shader->setVec3("u_SpotPos", m_spotPos[0], m_spotPos[1], m_spotPos[2]);
-                glm::vec3 sdir = glm::normalize(glm::vec3(m_spotDir[0], m_spotDir[1], m_spotDir[2]));
-                e.shader->setVec3("u_SpotDir", sdir.x, sdir.y, sdir.z);
-                e.shader->setVec3("u_SpotColor", m_spotColor[0], m_spotColor[1], m_spotColor[2]);
-                e.shader->setFloat("u_SpotCosInner", cos(glm::radians(m_spotInner)));
-                e.shader->setFloat("u_SpotCosOuter", cos(glm::radians(m_spotOuter)));
-                e.shader->setMat4("u_SpotVP", &spotVP[0][0]);
-                e.shader->setFloat("u_SpotBias", m_spotBias);
-                // point light
-                e.shader->setVec3("u_PointLightPos", m_pointLightPos[0], m_pointLightPos[1], m_pointLightPos[2]);
-                e.shader->setVec3("u_PointLightColor", m_pointLightColor[0], m_pointLightColor[1], m_pointLightColor[2]);
-                e.shader->setFloat("u_PointShadowFar", m_pointShadowFar);
-                e.shader->setFloat("u_PointShadowBias", m_pointShadowBias);
-                e.shader->setInt("u_PointShadowsEnabled", m_pointShadowEnabled ? 1 : 0);
-                m_pointShadowMap->bindCubemap(2);
-                e.shader->setInt("u_PointShadowMap", 2);
-                e.mesh->draw();
-                e.shader->unbind();
             }
 
             // Debug draw colliders (boxes only)

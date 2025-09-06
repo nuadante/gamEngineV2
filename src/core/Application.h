@@ -34,6 +34,8 @@ namespace engine
     class IBL;
     class CascadedShadowMap;
     class UIManager;
+    struct ECS; // forward decl in ecs/ECS.h
+    class ECSBridge; // local bridge class
 
     class Application
     {
@@ -70,6 +72,7 @@ namespace engine
         std::unique_ptr<Time> m_time;
         std::unique_ptr<Texture2D> m_texture;
         std::unique_ptr<Scene> m_scene;
+        std::unique_ptr<ECSBridge> m_ecsBridge;
         std::unique_ptr<Transform> m_cubeTransform;
         std::unique_ptr<ResourceManager> m_resources;
         std::unique_ptr<ShadowMap> m_shadowMap;
@@ -128,6 +131,8 @@ namespace engine
         bool m_panelInput = false;
         bool m_panelImport = false;
         bool m_panelTools = false;
+        // Rendering path
+        bool m_renderFromECS = true;
         // Lighting/UI parameters
         float m_lightPos[3] = { 3.0f, 3.0f, 3.0f };
         float m_lightColor[3] = { 1.0f, 1.0f, 1.0f };
