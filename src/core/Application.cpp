@@ -7,8 +7,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <imgui.h>
-#include <backends/imgui_impl_glfw.h>
-#include <backends/imgui_impl_opengl3.h>
+#include "ui/UIManager.h"
 #include "render/Shader.h"
 #include "render/Mesh.h"
 #include "render/Renderer.h"
@@ -272,7 +271,8 @@ namespace engine
         }
         std::cout << "[App] GLAD initialized" << std::endl;
 
-        if (!initializeImGui())
+        m_ui = std::make_unique<UIManager>();
+        if (!m_ui->initialize(m_window->getNativeHandle()))
         {
             std::cerr << "[App] initializeImGui failed" << std::endl;
             glfwTerminate();
@@ -741,9 +741,7 @@ namespace engine
                 }
             }
 
-            ImGui_ImplOpenGL3_NewFrame();
-            ImGui_ImplGlfw_NewFrame();
-            ImGui::NewFrame();
+            m_ui->beginFrame();
             // Gizmo external lib removed; using simple keyboard nudge
 
             // (Docking devre dışı bırakıldı - imgui opsiyonları ile etkinleştirilebilir)
@@ -1800,14 +1798,14 @@ namespace engine
             }
 
             // Finalize ImGui and render draw data
-            ImGui::Render();
+            m_ui->endFrame();
             // Post-process to screen, then draw ImGui on top
             if (m_post)
                 m_post->drawToScreen(display_w, display_h, m_exposure, m_gamma, m_fxaa,
                     m_bloomEnabled, m_bloomThreshold, m_bloomIntensity, m_bloomIterations,
                     m_ssaoEnabled, m_ssaoRadius, m_ssaoBias, m_ssaoPower,
                     m_taaEnabled, m_taaAlpha);
-            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+            m_ui->renderDrawData();
 
             m_window->swapBuffers();
         }
@@ -1819,7 +1817,7 @@ namespace engine
 
     void Application::shutdown()
     {
-        shutdownImGui();
+        if (m_ui) { m_ui->shutdown(); m_ui.reset(); }
         Renderer::shutdown();
         // release physics actors first
         for (auto& b : m_physBindings) b.actor = nullptr;
@@ -1861,26 +1859,8 @@ namespace engine
         return true;
     }
 
-    bool Application::initializeImGui()
-    {
-        IMGUI_CHECKVERSION();
-        ImGui::CreateContext();
-        ImGuiIO& io = ImGui::GetIO(); (void)io;
-        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-
-        ImGui::StyleColorsDark();
-        ImGui_ImplGlfw_InitForOpenGL(m_window->getNativeHandle(), false);
-        ImGui_ImplOpenGL3_Init("#version 330");
-        return true;
-    }
-
-    void Application::shutdownImGui()
-    {
-        ImGui_ImplOpenGL3_Shutdown();
-        ImGui_ImplGlfw_Shutdown();
-        if (ImGui::GetCurrentContext())
-            ImGui::DestroyContext();
-    }
+    bool Application::initializeImGui() { return true; }
+    void Application::shutdownImGui() {}
 }
 
 

@@ -33,6 +33,7 @@ namespace engine
     class AudioEngine;
     class IBL;
     class CascadedShadowMap;
+    class UIManager;
 
     class Application
     {
@@ -62,6 +63,7 @@ namespace engine
     private:
         std::unique_ptr<Window> m_window;
         std::unique_ptr<class InputManager> m_input;
+        std::unique_ptr<UIManager> m_ui;
         std::unique_ptr<Shader> m_shader;
         std::unique_ptr<Mesh> m_cube;
         std::unique_ptr<Camera> m_camera;

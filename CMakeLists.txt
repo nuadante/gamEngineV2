@@ -44,6 +44,7 @@ add_executable(${PROJECT_NAME}
     src/scene/SceneSerializer.cpp
     src/scripting/LuaEngine.cpp
     src/audio/AudioEngine.cpp
+    src/ui/UIManager.cpp
     src/scene/Scene.h
     src/scene/Transform.h
 )
