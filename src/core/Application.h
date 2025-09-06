@@ -32,6 +32,7 @@ namespace engine
     class LuaEngine;
     class AudioEngine;
     class IBL;
+    class CascadedShadowMap;
 
     class Application
     {
@@ -148,6 +149,22 @@ namespace engine
         float m_shadowOrthoSize = 10.0f;
         float m_shadowNear = 0.1f;
         float m_shadowFar = 50.0f;
+        // CSM/PCF
+        std::unique_ptr<CascadedShadowMap> m_csm;
+        bool m_csmEnabled = false;
+        int m_cascadeCount = 3; // max 4
+        int m_csmSize = 1024;
+        float m_cascadeEnds[4] = {5.0f, 20.0f, 60.0f, 100.0f};
+        float m_camNear = 0.1f;
+        float m_camFar = 100.0f;
+        float m_lightRadius = 0.5f; // for PCSS
+        bool m_usePCF = true;
+        bool m_usePCSS = false;
+        int m_pcfKernel = 2; // radius in texels
+        float m_pcfRadiusWorld = 0.0f; // optional world radius
+        float m_cascadeFade = 0.0f; // not used yet
+        float m_cascadeStabilize = 0.0f; // not used yet
+        float m_cascadeMatrices[4][16]; // upload helper
         // Point shadow
         bool m_pointShadowEnabled = false;
         float m_pointLightPos[3] = { 2.0f, 4.0f, 2.0f };

@@ -38,6 +38,7 @@ add_executable(${PROJECT_NAME}
     src/render/Terrain.cpp
     src/render/ParticleSystem.cpp
     src/render/Material.cpp
+    src/render/CascadedShadowMap.cpp
     src/render/IBL.cpp
     src/core/ResourceManager.cpp
     src/scene/SceneSerializer.cpp

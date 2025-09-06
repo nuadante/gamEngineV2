@@ -20,6 +20,7 @@
 #include "render/AssimpLoader.h"
 #include "render/Material.h"
 #include "render/Skybox.h"
+#include "render/CascadedShadowMap.h"
 #include "input/InputMap.h"
 #include "scene/SceneSerializer.h"
 #include "scene/Scene.h"
@@ -314,6 +315,57 @@ namespace engine
             uniform mat4 u_LightVP;
             uniform sampler2D u_ShadowMap;
             uniform float u_ShadowBias;
+            // CSM + PCF/PCSS
+            uniform int u_UseCSM;
+            uniform int u_CascadeCount;
+            uniform mat4 u_CascadeVP[4];
+            uniform sampler2D u_CascadeMap[4];
+            uniform int u_PCFKernel; // texel radius
+            uniform float u_ShadowMapSize;
+            uniform int u_UsePCSS;
+            uniform float u_LightRadius;
+
+            bool inside01(vec3 p){ return p.x>=0.0 && p.x<=1.0 && p.y>=0.0 && p.y<=1.0 && p.z<=1.0; }
+            float sampleShadowMap(sampler2D map, vec3 projCoords)
+            {
+                float current = projCoords.z;
+                float texel = 1.0 / max(u_ShadowMapSize, 1.0);
+                int r = max(u_PCFKernel, 0);
+                if (u_UsePCSS==1)
+                {
+                    float scale = 1.0 + current * u_LightRadius;
+                    r = int(float(r) * scale);
+                }
+                float occl = 0.0;
+                int count = 0;
+                for (int x=-r; x<=r; ++x)
+                for (int y=-r; y<=r; ++y)
+                {
+                    vec2 uv = projCoords.xy + vec2(x,y) * texel;
+                    float closest = texture(map, uv).r;
+                    occl += (current - u_ShadowBias > closest) ? 1.0 : 0.0;
+                    count++;
+                }
+                return count>0 ? (occl/float(count)) : 0.0;
+            }
+            float computeShadow(vec3 worldPos)
+            {
+                if (u_UseCSM==0)
+                {
+                    vec4 clip = u_LightVP * vec4(worldPos,1.0);
+                    vec3 proj = clip.xyz / clip.w; proj = proj*0.5+0.5;
+                    if (!inside01(proj)) return 0.0;
+                    return sampleShadowMap(u_ShadowMap, proj);
+                }
+                for (int i=0;i<u_CascadeCount;i++)
+                {
+                    vec4 clip = u_CascadeVP[i] * vec4(worldPos,1.0);
+                    vec3 proj = clip.xyz / max(clip.w, 1e-6); proj = proj*0.5+0.5;
+                    if (inside01(proj))
+                        return sampleShadowMap(u_CascadeMap[i], proj);
+                }
+                return 0.0;
+            }
             float samplePointShadow(vec3 worldPos)
             {
                 vec3 L = worldPos - u_PointLightPos;
@@ -330,19 +382,7 @@ namespace engine
                 float diff = max(dot(N, L), 0.0);
                 float spec = pow(max(dot(N, H), 0.0), u_Shininess);
                 vec3 baseColor = u_UseTexture ? texture(u_AlbedoTex, vUV).rgb : u_Albedo;
-                float shadow = 0.0;
-                if (u_ShadowsEnabled)
-                {
-                    vec4 lightClip = u_LightVP * vec4(vWorldPos, 1.0);
-                    vec3 projCoords = lightClip.xyz / lightClip.w;
-                    projCoords = projCoords * 0.5 + 0.5;
-                    if (projCoords.x >= 0.0 && projCoords.x <= 1.0 && projCoords.y >= 0.0 && projCoords.y <= 1.0 && projCoords.z <= 1.0)
-                    {
-                        float closestDepth = texture(u_ShadowMap, projCoords.xy).r;
-                        float currentDepth = projCoords.z;
-                        shadow = currentDepth - u_ShadowBias > closestDepth ? 1.0 : 0.0;
-                    }
-                }
+                float shadow = (u_ShadowsEnabled) ? computeShadow(vWorldPos) : 0.0;
                 vec3 color = baseColor * (0.1 + (1.0 - shadow) * diff) + u_LightColor * (1.0 - shadow) * spec;
                 // point light
                 vec3 Lp = normalize(u_PointLightPos - vWorldPos);
@@ -551,6 +591,18 @@ namespace engine
             uniform bool u_UseAOTex; uniform sampler2D u_AOTex;
             uniform bool u_UseNormalMap; uniform sampler2D u_NormalTex;
             uniform bool u_UseIBL; uniform samplerCube u_IrradianceMap; uniform samplerCube u_PrefilterMap; uniform sampler2D u_BRDFLUT;
+            // Shadows (CSM + PCF/PCSS)
+            uniform bool u_ShadowsEnabled;
+            uniform int u_UseCSM; uniform int u_CascadeCount; uniform mat4 u_CascadeVP[4]; uniform sampler2D u_CascadeMap[4];
+            uniform mat4 u_LightVP; uniform sampler2D u_ShadowMap;
+            uniform float u_ShadowBias; uniform int u_PCFKernel; uniform float u_ShadowMapSize; uniform int u_UsePCSS; uniform float u_LightRadius;
+            bool inside01(vec3 p){ return p.x>=0.0 && p.x<=1.0 && p.y>=0.0 && p.y<=1.0 && p.z<=1.0; }
+            float sampleShadowMap(sampler2D map, vec3 projCoords){
+              float current = projCoords.z; float texel = 1.0/max(u_ShadowMapSize,1.0); int r=max(u_PCFKernel,0);
+              if (u_UsePCSS==1){ float scale = 1.0 + current * u_LightRadius; r = int(float(r)*scale);} float occl=0.0; int cnt=0;
+              for(int x=-r;x<=r;++x) for(int y=-r;y<=r;++y){ vec2 uv = projCoords.xy + vec2(x,y)*texel; float closest = texture(map, uv).r; occl += (current - u_ShadowBias > closest) ? 1.0 : 0.0; cnt++; }
+              return cnt>0? occl/float(cnt) : 0.0; }
+            float computeShadow(vec3 worldPos){ if (!u_ShadowsEnabled) return 0.0; if (u_UseCSM==0){ vec4 clip=u_LightVP*vec4(worldPos,1.0); vec3 proj=clip.xyz/clip.w; proj=proj*0.5+0.5; if(!inside01(proj)) return 0.0; return sampleShadowMap(u_ShadowMap, proj);} for(int i=0;i<u_CascadeCount;i++){ vec4 clip=u_CascadeVP[i]*vec4(worldPos,1.0); vec3 proj=clip.xyz/max(clip.w,1e-6); proj=proj*0.5+0.5; if(inside01(proj)) return sampleShadowMap(u_CascadeMap[i], proj);} return 0.0; }
             float DistributionGGX(vec3 N, vec3 H, float a){ float a2=a*a; float NdotH=max(dot(N,H),0.0); float NdotH2=NdotH*NdotH; float denom=(NdotH2*(a2-1.0)+1.0); return a2/(3.14159265*denom*denom); }
             float GeometrySchlickGGX(float NdotV, float k){ return NdotV/(NdotV*(1.0-k)+k); }
             float GeometrySmith(vec3 N, vec3 V, vec3 L, float k){ float NdotV=max(dot(N,V),0.0); float NdotL=max(dot(N,L),0.0); float g1=GeometrySchlickGGX(NdotV,k); float g2=GeometrySchlickGGX(NdotL,k); return g1*g2; }
@@ -582,7 +634,8 @@ namespace engine
               vec3 kS = F; vec3 kD = (vec3(1.0)-kS) * (1.0 - metallic);
               float NdotL = max(dot(N,L),0.0);
               vec3 spec = (NDF*G*F) / max(4.0*max(dot(N,V),0.0)*NdotL, 0.001);
-              vec3 Lo = (kD*base/3.14159265 + spec) * NdotL;
+              float shadow = computeShadow(vW);
+              vec3 Lo = (kD*base/3.14159265 + spec) * NdotL * (1.0 - shadow);
               vec3 ambient;
               if (u_UseIBL){
                 vec3 irradiance = texture(u_IrradianceMap, N).rgb;
@@ -628,6 +681,28 @@ namespace engine
             {
                 SceneSerializer::load(*m_scene, "scene.json");
                 rebuildPhysicsFromScene();
+                // Auto-bind material assets from paths
+                if (m_resources && m_scene)
+                {
+                    for (auto& e : m_scene->entities())
+                    {
+                        if (!e.materialPath.empty())
+                        {
+                            if (auto* mat = m_resources->getMaterialFromFile(e.materialPath))
+                            {
+                                e.material = mat;
+                                e.usePBR = true;
+                                if (mat->albedoTex) { e.albedoTex = mat->albedoTex; e.useTexture = true; }
+                                if (mat->metallicTex) e.metallicTex = mat->metallicTex;
+                                if (mat->roughnessTex) e.roughnessTex = mat->roughnessTex;
+                                if (mat->aoTex) e.aoTex = mat->aoTex;
+                                if (mat->normalTex) e.normalTex = mat->normalTex;
+                                e.albedo[0]=mat->albedo[0]; e.albedo[1]=mat->albedo[1]; e.albedo[2]=mat->albedo[2];
+                                e.metallic = mat->metallic; e.roughness = mat->roughness; e.ao = mat->ao;
+                            }
+                        }
+                    }
+                }
             }
 
             ImGui_ImplOpenGL3_NewFrame();
@@ -692,6 +767,13 @@ namespace engine
                 ImGui::Text("Shadows");
                 ImGui::Checkbox("Enable Shadows", &m_shadowsEnabled);
                 ImGui::SliderFloat("Bias", &m_shadowBias, 0.0001f, 0.01f, "%.5f");
+                ImGui::Checkbox("Enable CSM", &m_csmEnabled);
+                ImGui::SliderInt("Cascade Count", &m_cascadeCount, 1, 4);
+                ImGui::SliderInt("CSM Size", &m_csmSize, 256, 4096);
+                ImGui::DragFloat4("Cascade Ends", m_cascadeEnds, 0.5f, 0.1f, 500.0f);
+                ImGui::Checkbox("PCF", &m_usePCF); ImGui::SameLine(); ImGui::Checkbox("PCSS", &m_usePCSS);
+                ImGui::SliderInt("PCF Kernel", &m_pcfKernel, 1, 4);
+                ImGui::SliderFloat("Light Radius", &m_lightRadius, 0.0f, 2.0f);
                 ImGui::Separator();
                 ImGui::Text("Point Light");
                 ImGui::Checkbox("Enable Point Shadow", &m_pointShadowEnabled);
@@ -1246,18 +1328,50 @@ namespace engine
             glm::mat4 lightVP = lightProj * lightView;
             if (m_shadowsEnabled)
             {
-                m_shadowMap->begin();
-                // render depth
-                for (const auto& e : m_scene->getEntities())
+                if (!m_csmEnabled)
                 {
-                    glm::mat4 model = e.transform.modelMatrix();
-                    m_depthShader->bind();
-                    m_depthShader->setMat4("u_LightVP", &lightVP[0][0]);
-                    m_depthShader->setMat4("u_Model", &model[0][0]);
-                    e.mesh->draw();
+                    m_shadowMap->begin();
+                    for (const auto& e : m_scene->getEntities())
+                    {
+                        glm::mat4 model = e.transform.modelMatrix();
+                        m_depthShader->bind();
+                        m_depthShader->setMat4("u_LightVP", &lightVP[0][0]);
+                        m_depthShader->setMat4("u_Model", &model[0][0]);
+                        e.mesh->draw();
+                    }
+                    m_depthShader->unbind();
+                    m_shadowMap->end(display_w, display_h);
                 }
-                m_depthShader->unbind();
-                m_shadowMap->end(display_w, display_h);
+                else
+                {
+                    int cascades = m_cascadeCount;
+                    if (!m_csm || m_csm->size() != m_csmSize || m_csm->cascades() != cascades)
+                    {
+                        if (!m_csm) m_csm = std::make_unique<CascadedShadowMap>();
+                        else m_csm->destroy();
+                        m_csm->create(m_csmSize, cascades);
+                    }
+                    float prevEnd = m_shadowNear;
+                    for (int c = 0; c < cascades; ++c)
+                    {
+                        float endZ = m_cascadeEnds[c];
+                        glm::mat4 proj = glm::ortho(-m_shadowOrthoSize, m_shadowOrthoSize, -m_shadowOrthoSize, m_shadowOrthoSize, prevEnd, endZ);
+                        glm::mat4 vp = proj * lightView;
+                        memcpy(m_cascadeMatrices[c], &vp[0][0], sizeof(float)*16);
+                        m_csm->beginCascade(c);
+                        for (const auto& e : m_scene->getEntities())
+                        {
+                            glm::mat4 model = e.transform.modelMatrix();
+                            m_depthShader->bind();
+                            m_depthShader->setMat4("u_LightVP", &vp[0][0]);
+                            m_depthShader->setMat4("u_Model", &model[0][0]);
+                            e.mesh->draw();
+                        }
+                        m_depthShader->unbind();
+                        prevEnd = endZ;
+                    }
+                    m_csm->end(display_w, display_h);
+                }
             }
 
             // Point shadow pass: render 6 faces storing distance in cubemap
@@ -1391,6 +1505,39 @@ namespace engine
                         m_pbrShader->setInt("u_BRDFLUT", 7); glActiveTexture(GL_TEXTURE0+7); glBindTexture(GL_TEXTURE_2D, m_ibl->brdfLUT());
                     }
                     else m_pbrShader->setInt("u_UseIBL", 0);
+                    // Shadows PCF/PCSS + CSM
+                    m_pbrShader->setInt("u_ShadowsEnabled", m_shadowsEnabled ? 1 : 0);
+                    if (!m_csmEnabled)
+                    {
+                        m_pbrShader->setInt("u_UseCSM", 0);
+                        m_pbrShader->setMat4("u_LightVP", &lightVP[0][0]);
+                        m_pbrShader->setFloat("u_ShadowBias", m_shadowBias);
+                        m_shadowMap->bindDepthTexture(8);
+                        m_pbrShader->setInt("u_ShadowMap", 8);
+                        m_pbrShader->setInt("u_PCFKernel", m_usePCF ? m_pcfKernel : 0);
+                        m_pbrShader->setFloat("u_ShadowMapSize", (float)m_shadowMapSize);
+                        m_pbrShader->setInt("u_UsePCSS", m_usePCSS ? 1 : 0);
+                        m_pbrShader->setFloat("u_LightRadius", m_lightRadius);
+                    }
+                    else
+                    {
+                        m_pbrShader->setInt("u_UseCSM", 1);
+                        int cascades = m_cascadeCount;
+                        for (int c = 0; c < cascades; ++c)
+                        {
+                            char name[32]; sprintf_s(name, "u_CascadeVP[%d]", c);
+                            m_pbrShader->setMat4(name, m_cascadeMatrices[c]);
+                            m_csm->bindCascade(c, 8 + c);
+                            char smp[32]; sprintf_s(smp, "u_CascadeMap[%d]", c);
+                            m_pbrShader->setInt(smp, 8 + c);
+                        }
+                        m_pbrShader->setInt("u_CascadeCount", cascades);
+                        m_pbrShader->setFloat("u_ShadowBias", m_shadowBias);
+                        m_pbrShader->setInt("u_PCFKernel", m_usePCF ? m_pcfKernel : 0);
+                        m_pbrShader->setFloat("u_ShadowMapSize", (float)m_csmSize);
+                        m_pbrShader->setInt("u_UsePCSS", m_usePCSS ? 1 : 0);
+                        m_pbrShader->setFloat("u_LightRadius", m_lightRadius);
+                    }
                     e.mesh->draw();
                     m_pbrShader->unbind();
                     continue;
@@ -1417,10 +1564,37 @@ namespace engine
                 }
                 // shadows
                 e.shader->setInt("u_ShadowsEnabled", m_shadowsEnabled ? 1 : 0);
-                e.shader->setMat4("u_LightVP", &lightVP[0][0]);
-                e.shader->setFloat("u_ShadowBias", m_shadowBias);
-                m_shadowMap->bindDepthTexture(1);
-                e.shader->setInt("u_ShadowMap", 1);
+                if (!m_csmEnabled)
+                {
+                    e.shader->setMat4("u_LightVP", &lightVP[0][0]);
+                    e.shader->setFloat("u_ShadowBias", m_shadowBias);
+                    m_shadowMap->bindDepthTexture(1);
+                    e.shader->setInt("u_ShadowMap", 1);
+                    e.shader->setInt("u_UseCSM", 0);
+                    e.shader->setInt("u_PCFKernel", m_usePCF ? m_pcfKernel : 0);
+                    e.shader->setFloat("u_ShadowMapSize", (float)m_shadowMapSize);
+                    e.shader->setInt("u_UsePCSS", m_usePCSS ? 1 : 0);
+                    e.shader->setFloat("u_LightRadius", m_lightRadius);
+                }
+                else
+                {
+                    int cascades = m_cascadeCount;
+                    for (int c = 0; c < cascades; ++c)
+                    {
+                        char name[32]; sprintf_s(name, "u_CascadeVP[%d]", c);
+                        e.shader->setMat4(name, m_cascadeMatrices[c]);
+                        m_csm->bindCascade(c, 1 + c);
+                        char smp[32]; sprintf_s(smp, "u_CascadeMap[%d]", c);
+                        e.shader->setInt(smp, 1 + c);
+                    }
+                    e.shader->setInt("u_CascadeCount", cascades);
+                    e.shader->setInt("u_UseCSM", 1);
+                    e.shader->setFloat("u_ShadowBias", m_shadowBias);
+                    e.shader->setInt("u_PCFKernel", m_usePCF ? m_pcfKernel : 0);
+                    e.shader->setFloat("u_ShadowMapSize", (float)m_csmSize);
+                    e.shader->setInt("u_UsePCSS", m_usePCSS ? 1 : 0);
+                    e.shader->setFloat("u_LightRadius", m_lightRadius);
+                }
                 // spot
                 e.shader->setInt("u_SpotEnabled", m_spotEnabled ? 1 : 0);
                 e.shader->setVec3("u_SpotPos", m_spotPos[0], m_spotPos[1], m_spotPos[2]);
