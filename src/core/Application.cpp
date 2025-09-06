@@ -17,6 +17,7 @@
 #include "render/ShadowMap.h"
 #include "render/PointShadowMap.h"
 #include "render/PostProcess.h"
+#include "render/AssimpLoader.h"
 #include "render/Skybox.h"
 #include "input/InputMap.h"
 #include "scene/SceneSerializer.h"
@@ -617,6 +618,24 @@ namespace engine
                         if (!m_shader->compileFromSource(vs, fs))
                         {
                             std::cerr << "[Shader] reload failed" << std::endl;
+                        }
+                    }
+                }
+                ImGui::Separator();
+                ImGui::Text("Model Import (OBJ/FBX/GLTF)");
+                ImGui::InputText("Model Path", m_modelPath, sizeof(m_modelPath));
+                if (ImGui::Button("Import Model") && m_modelPath[0] != '\0')
+                {
+                    std::vector<ImportedMesh> ims;
+                    if (AssimpLoader::loadModel(m_modelPath, ims, true))
+                    {
+                        for (auto& im : ims)
+                        {
+                            // Own the mesh memory inside Application to keep alive
+                            std::unique_ptr<Mesh> owned(im.mesh);
+                            int e = m_scene->addEntity(im.name.empty()?"Imported":im.name, owned.get(), m_shader.get(), im.diffuse);
+                            m_scene->entities()[e].useTexture = (im.diffuse != nullptr);
+                            m_importedMeshes.push_back(std::move(owned));
                         }
                     }
                 }

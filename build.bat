@@ -6,7 +6,7 @@ if exist build rmdir /s /q build
 
 REM Conan dependencies yukle
 echo Conan dependencies yukleniyor...
-conan install . --output-folder=build --build=missing
+conan install . --output-folder=build --build=missing -s compiler.cppstd=17
 if errorlevel 1 (
     echo Conan install basarisiz!
     pause

@@ -12,6 +12,7 @@ find_package(glm REQUIRED)
 find_package(stb REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(physx REQUIRED)
+find_package(assimp REQUIRED)
 
 # Create executable
 add_executable(${PROJECT_NAME}
@@ -29,6 +30,7 @@ add_executable(${PROJECT_NAME}
     src/render/PointShadowMap.cpp
     src/render/PostProcess.cpp
     src/render/Skybox.cpp
+    src/render/AssimpLoader.cpp
     src/core/ResourceManager.cpp
     src/scene/SceneSerializer.cpp
     src/scene/Scene.h
@@ -45,6 +47,7 @@ target_link_libraries(${PROJECT_NAME}
     nlohmann_json::nlohmann_json
     physx::physx
     PhysX::PhysXExtensions
+    assimp::assimp
 )
 
 # Include directories

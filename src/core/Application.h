@@ -132,6 +132,10 @@ namespace engine
         bool m_pickClickConsumed = false;
         bool m_useCpuPickFallback = true;
         bool m_autoCreateRigidOnPush = true;
+
+        // Model import (Assimp)
+        char m_modelPath[260] = "";
+        std::vector<std::unique_ptr<Mesh>> m_importedMeshes;
     };
 }
 
