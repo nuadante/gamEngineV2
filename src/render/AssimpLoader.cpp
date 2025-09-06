@@ -3,6 +3,7 @@
 #include "render/Texture2D.h"
 #include "render/SkinnedMesh.h"
 #include "render/Skeleton.h"
+#include "core/ResourceManager.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -40,11 +41,25 @@ namespace engine
         return mesh;
     }
 
-    static Texture2D* loadMaterialTexture(const aiMaterial* mat, aiTextureType type, const std::string& baseDir)
+    static Texture2D* loadMaterialTexture(ResourceManager* res, const aiMaterial* mat, aiTextureType type, const std::string& baseDir)
     {
-        (void)mat; (void)type; (void)baseDir;
-        // TODO: Wire with ResourceManager to load textures; returning nullptr for now.
-        return nullptr;
+        if (!mat) return nullptr;
+        if (!res) return nullptr;
+        if (mat->GetTextureCount(type) <= 0) return nullptr;
+        aiString str;
+        if (mat->GetTexture(type, 0, &str) != AI_SUCCESS) return nullptr;
+        std::string rel = str.C_Str();
+        if (rel.empty()) return nullptr;
+        // join baseDir + rel
+        std::string full = baseDir;
+        if (!full.empty())
+        {
+            char sep = '\\';
+            if (full.back() != '/' && full.back() != '\\') full.push_back(sep);
+            full += rel;
+        }
+        else full = rel;
+        return res->getTextureFromFile(full, type != aiTextureType_NORMALS); // keep normals unflipped
     }
 
     static glm::mat4 toGlm(const aiMatrix4x4& m)
@@ -66,7 +81,7 @@ namespace engine
         return nullptr;
     }
 
-    bool AssimpLoader::loadModel(const std::string& path, std::vector<ImportedMesh>& outMeshes, bool flipUVs)
+    bool AssimpLoader::loadModel(ResourceManager* resources, const std::string& path, std::vector<ImportedMesh>& outMeshes, bool flipUVs)
     {
         Assimp::Importer importer;
         unsigned flags = aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_JoinIdenticalVertices | aiProcess_CalcTangentSpace;
@@ -79,17 +94,30 @@ namespace engine
         size_t p = baseDir.find_last_of("/\\");
         baseDir = (p == std::string::npos) ? std::string("") : baseDir.substr(0, p);
 
+        // NOTE: This loader needs ResourceManager; acquire via a simple local instance for now.
+        ResourceManager localRes;
+        ResourceManager* res = resources ? resources : &localRes;
+
         for (unsigned i = 0; i < scene->mNumMeshes; ++i)
         {
             const aiMesh* am = scene->mMeshes[i];
             Mesh* mesh = createMeshFromAi(am);
-            Texture2D* diff = nullptr;
+            Texture2D* diff = nullptr; Texture2D* metal = nullptr; Texture2D* rough = nullptr; Texture2D* ao = nullptr; Texture2D* normal = nullptr;
             if (am->mMaterialIndex < scene->mNumMaterials)
             {
                 const aiMaterial* mat = scene->mMaterials[am->mMaterialIndex];
-                diff = loadMaterialTexture(mat, aiTextureType_DIFFUSE, baseDir);
+                diff = loadMaterialTexture(res, mat, aiTextureType_DIFFUSE, baseDir);
+                // PBR guesses: many exporters map metal/rough/ao to these slots
+                metal = loadMaterialTexture(res, mat, aiTextureType_METALNESS, baseDir);
+                if (!metal) metal = loadMaterialTexture(res, mat, aiTextureType_SPECULAR, baseDir); // sometimes used
+                rough = loadMaterialTexture(res, mat, aiTextureType_DIFFUSE_ROUGHNESS, baseDir);
+                if (!rough) rough = loadMaterialTexture(res, mat, aiTextureType_SHININESS, baseDir);
+                ao = loadMaterialTexture(res, mat, aiTextureType_AMBIENT_OCCLUSION, baseDir);
+                if (!ao) ao = loadMaterialTexture(res, mat, aiTextureType_LIGHTMAP, baseDir);
+                normal = loadMaterialTexture(res, mat, aiTextureType_NORMALS, baseDir);
+                if (!normal) normal = loadMaterialTexture(res, mat, aiTextureType_HEIGHT, baseDir);
             }
-            ImportedMesh im{ mesh, diff, am->mName.C_Str() };
+            ImportedMesh im{ mesh, diff, metal, rough, ao, normal, am->mName.C_Str() };
             outMeshes.push_back(im);
         }
         return !outMeshes.empty();
@@ -138,7 +166,7 @@ namespace engine
         else sca = aiVector3D(1, 1, 1);
     }
 
-    bool AssimpLoader::loadSkinned(const std::string& path, ImportedSkinned& outSkinned, bool flipUVs)
+    bool AssimpLoader::loadSkinned(ResourceManager* resources, const std::string& path, ImportedSkinned& outSkinned, bool flipUVs)
     {
         Assimp::Importer importer;
         unsigned flags = aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights;
@@ -233,7 +261,8 @@ namespace engine
         {
             std::string baseDir = path; size_t p = baseDir.find_last_of("/\\"); baseDir = (p == std::string::npos) ? std::string("") : baseDir.substr(0, p);
             const aiMaterial* mat = scene->mMaterials[am->mMaterialIndex];
-            diff = loadMaterialTexture(mat, aiTextureType_DIFFUSE, baseDir);
+            ResourceManager localRes; ResourceManager* res = resources?resources:&localRes;
+            diff = loadMaterialTexture(res, mat, aiTextureType_DIFFUSE, baseDir);
         }
 
         // Animations (sampled frames)

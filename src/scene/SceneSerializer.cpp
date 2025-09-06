@@ -1,5 +1,7 @@
 #include "scene/SceneSerializer.h"
 #include "scene/Scene.h"
+#include "core/ResourceManager.h"
+#include "render/Material.h"
 
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -18,6 +20,12 @@ namespace engine
         j["albedo"]   = { e.albedo[0], e.albedo[1], e.albedo[2] };
         j["shininess"] = e.shininess;
         j["useTexture"] = e.useTexture;
+        // PBR/material
+        j["usePBR"] = e.usePBR;
+        j["metallic"] = e.metallic;
+        j["roughness"] = e.roughness;
+        j["ao"] = e.ao;
+        if (!e.materialPath.empty()) j["materialPath"] = e.materialPath;
         // physics
         j["hasRigidBody"] = e.hasRigidBody;
         j["isKinematic"] = e.isKinematic;
@@ -42,6 +50,11 @@ namespace engine
         e.albedo[0] = a[0]; e.albedo[1] = a[1]; e.albedo[2] = a[2];
         e.shininess = j.value("shininess", 64.0f);
         e.useTexture = j.value("useTexture", true);
+        e.usePBR = j.value("usePBR", e.usePBR);
+        e.metallic = j.value("metallic", e.metallic);
+        e.roughness = j.value("roughness", e.roughness);
+        e.ao = j.value("ao", e.ao);
+        e.materialPath = j.value("materialPath", std::string());
         // physics
         e.hasRigidBody = j.value("hasRigidBody", false);
         e.isKinematic = j.value("isKinematic", false);
@@ -77,6 +90,12 @@ namespace engine
         {
             Entity e{};
             jsonToEntity(je, e);
+            // if materialPath set, try to load and bind via a temporary ResourceManager
+            if (!e.materialPath.empty())
+            {
+                // Note: Application owns a ResourceManager; here we don't have it.
+                // Leave material binding to runtime; we only keep path in entity.
+            }
             scene.entities().push_back(e);
         }
         scene.setSelectedIndex(scene.getEntities().empty() ? -1 : 0);

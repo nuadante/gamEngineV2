@@ -18,6 +18,7 @@
 #include "render/PointShadowMap.h"
 #include "render/PostProcess.h"
 #include "render/AssimpLoader.h"
+#include "render/Material.h"
 #include "render/Skybox.h"
 #include "input/InputMap.h"
 #include "scene/SceneSerializer.h"
@@ -875,7 +876,7 @@ namespace engine
                 if (ImGui::Button("Import Model") && m_modelPath[0] != '\0')
                 {
                     std::vector<ImportedMesh> ims;
-                    if (AssimpLoader::loadModel(m_modelPath, ims, true))
+                    if (AssimpLoader::loadModel(m_resources.get(), m_modelPath, ims, true))
                     {
                         for (auto& im : ims)
                         {
@@ -883,6 +884,16 @@ namespace engine
                             std::unique_ptr<Mesh> owned(im.mesh);
                             int e = m_scene->addEntity(im.name.empty()?"Imported":im.name, owned.get(), m_shader.get(), im.diffuse);
                             m_scene->entities()[e].useTexture = (im.diffuse != nullptr);
+                            // PBR guesses from Assimp
+                            if (im.metal || im.rough || im.ao || im.normal)
+                            {
+                                auto& ent = m_scene->entities()[e];
+                                ent.usePBR = true;
+                                if (im.metal) ent.metallicTex = im.metal;
+                                if (im.rough) ent.roughnessTex = im.rough;
+                                if (im.ao) ent.aoTex = im.ao;
+                                if (im.normal) ent.normalTex = im.normal;
+                            }
                             m_importedMeshes.push_back(std::move(owned));
                         }
                     }
@@ -893,7 +904,7 @@ namespace engine
                 if (ImGui::Button("Import Skinned") && m_skinPath[0] != '\0')
                 {
                     ImportedSkinned isk;
-                    if (AssimpLoader::loadSkinned(m_skinPath, isk, true))
+                    if (AssimpLoader::loadSkinned(m_resources.get(), m_skinPath, isk, true))
                     {
                         m_skinMesh.reset(isk.mesh);
                         m_skinSkeleton.reset(isk.skeleton);
@@ -1042,6 +1053,48 @@ namespace engine
                             {
                                 Texture2D* t2d = m_resources->getTextureFromFile(entTexPath, true);
                                 if (t2d) ent.albedoTex = t2d;
+                            }
+                        }
+                        // Material asset load/save
+                        static char matPath[260] = "";
+                        ImGui::InputText("Material (.mat.json)", matPath, sizeof(matPath));
+                        if (ImGui::Button("Load Material"))
+                        {
+                            if (matPath[0])
+                            {
+                                auto* mat = m_resources->getMaterialFromFile(matPath);
+                                if (mat)
+                                {
+                                    ent.material = mat;
+                                    ent.materialPath = mat->sourcePath.empty()? std::string(matPath) : mat->sourcePath;
+                                    ent.usePBR = true;
+                                    // Apply textures
+                                    if (mat->albedoTex) { ent.albedoTex = mat->albedoTex; ent.useTexture = true; }
+                                    if (mat->metallicTex) ent.metallicTex = mat->metallicTex;
+                                    if (mat->roughnessTex) ent.roughnessTex = mat->roughnessTex;
+                                    if (mat->aoTex) ent.aoTex = mat->aoTex;
+                                    if (mat->normalTex) ent.normalTex = mat->normalTex;
+                                    ent.albedo[0]=mat->albedo[0]; ent.albedo[1]=mat->albedo[1]; ent.albedo[2]=mat->albedo[2];
+                                    ent.metallic = mat->metallic; ent.roughness = mat->roughness; ent.ao = mat->ao;
+                                }
+                            }
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("Save Material"))
+                        {
+                            if (matPath[0])
+                            {
+                                MaterialAsset tmp;
+                                tmp.albedo[0]=ent.albedo[0]; tmp.albedo[1]=ent.albedo[1]; tmp.albedo[2]=ent.albedo[2];
+                                tmp.metallic=ent.metallic; tmp.roughness=ent.roughness; tmp.ao=ent.ao;
+                                // try to resolve paths from ResourceManager cache if available
+                                if (auto p = m_resources->getPathForTexture(ent.albedoTex)) tmp.albedoTexPath = *p;
+                                if (auto p = m_resources->getPathForTexture(ent.metallicTex)) tmp.metallicTexPath = *p;
+                                if (auto p = m_resources->getPathForTexture(ent.roughnessTex)) tmp.roughnessTexPath = *p;
+                                if (auto p = m_resources->getPathForTexture(ent.aoTex)) tmp.aoTexPath = *p;
+                                if (auto p = m_resources->getPathForTexture(ent.normalTex)) tmp.normalTexPath = *p;
+                                tmp.saveToFile(matPath);
+                                ent.materialPath = matPath;
                             }
                         }
                         ImGui::Separator();

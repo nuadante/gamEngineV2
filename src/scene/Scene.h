@@ -10,6 +10,7 @@ namespace engine
     class Mesh;
     class Shader;
     class Texture2D;
+    struct MaterialAsset;
 
     struct Entity
     {
@@ -18,6 +19,10 @@ namespace engine
         Mesh* mesh = nullptr;
         Shader* shader = nullptr;
         Texture2D* albedoTex = nullptr; // optional
+        // Optional material asset reference (if set, overrides PBR fields)
+        MaterialAsset* material = nullptr;
+        // material asset source path for serialization
+        std::string materialPath;
         // per-entity material
         float albedo[3] = {1.0f, 0.7f, 0.2f};
         float shininess = 64.0f;

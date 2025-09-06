@@ -7,6 +7,7 @@ namespace engine
 {
     class Mesh;
     class Texture2D;
+    class ResourceManager;
     class SkinnedMesh;
     struct Animation;
     class Skeleton;
@@ -15,6 +16,10 @@ namespace engine
     {
         Mesh* mesh;
         Texture2D* diffuse;
+        Texture2D* metal = nullptr;
+        Texture2D* rough = nullptr;
+        Texture2D* ao = nullptr;
+        Texture2D* normal = nullptr;
         std::string name;
     };
 
@@ -30,8 +35,8 @@ namespace engine
     class AssimpLoader
     {
     public:
-        static bool loadModel(const std::string& path, std::vector<ImportedMesh>& outMeshes, bool flipUVs);
-        static bool loadSkinned(const std::string& path, ImportedSkinned& outSkinned, bool flipUVs);
+        static bool loadModel(class ResourceManager* resources, const std::string& path, std::vector<ImportedMesh>& outMeshes, bool flipUVs);
+        static bool loadSkinned(class ResourceManager* resources, const std::string& path, ImportedSkinned& outSkinned, bool flipUVs);
     };
 }
 

@@ -2,9 +2,11 @@
 #include "render/Shader.h"
 #include "render/Texture2D.h"
 #include "render/Mesh.h"
+#include "render/Material.h"
 
 namespace engine
 {
+    ResourceManager::~ResourceManager() = default;
     Shader* ResourceManager::getShaderFromSource(const std::string& key, const std::string& vertexSrc, const std::string& fragmentSrc)
     {
         auto it = m_shaders.find(key);
@@ -26,6 +28,7 @@ namespace engine
             return nullptr;
         Texture2D* ptr = tex.get();
         m_textures[path] = std::move(tex);
+        m_texturePathByPtr[ptr] = path;
         return ptr;
     }
 
@@ -58,6 +61,24 @@ namespace engine
         Mesh* ptr = mesh.get();
         m_meshes[key] = std::move(mesh);
         return ptr;
+    }
+
+    MaterialAsset* ResourceManager::getMaterialFromFile(const std::string& path)
+    {
+        auto it = m_materials.find(path);
+        if (it != m_materials.end()) return &it->second;
+        MaterialAsset mat;
+        if (!mat.loadFromFile(path, this))
+            return nullptr;
+        m_materials.emplace(path, std::move(mat));
+        return &m_materials[path];
+    }
+
+    const std::string* ResourceManager::getPathForTexture(const Texture2D* tex) const
+    {
+        auto it = m_texturePathByPtr.find(tex);
+        if (it == m_texturePathByPtr.end()) return nullptr;
+        return &it->second;
     }
 }
 
