@@ -56,6 +56,9 @@ namespace engine
         void createPhysicsForEntity(int entityIndex);
         void destroyPhysicsForEntity(int entityIndex);
         void rebuildPhysicsFromScene();
+        void rebuildPhysicsFromECS();
+        void syncECSFromPhysics(float dt);
+        void handlePickingECS();
         // picking helpers
         void handlePicking();
         // frustum culling helpers

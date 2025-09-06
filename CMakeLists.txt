@@ -46,6 +46,7 @@ add_executable(${PROJECT_NAME}
     src/scripting/LuaEngine.cpp
     src/audio/AudioEngine.cpp
     src/ui/UIManager.cpp
+    src/ecs/ECSSerializer.cpp
     src/ecs/ECS.h
     src/scene/Scene.h
     src/scene/Transform.h

@@ -60,9 +60,32 @@ namespace engine
 
     struct BoundsC { float radius{1.0f}; };
 
+    struct RigidBodyC
+    {
+        bool isStatic{false};
+        bool isKinematic{false};
+        float mass{1.0f};
+        float friction{0.5f};
+        float restitution{0.1f};
+    };
+
+    struct BoxColliderC
+    {
+        // half extents
+        float hx{0.5f};
+        float hy{0.5f};
+        float hz{0.5f};
+    };
+
+    struct PhysActorC
+    {
+        void* actor{nullptr}; // runtime PhysX actor pointer (not serialized)
+    };
+
     struct ECS
     {
         entt::registry registry;
+        entt::entity selected{entt::null};
 
         entt::entity createEntity(const std::string& name)
         {

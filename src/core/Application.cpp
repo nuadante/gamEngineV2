@@ -42,6 +42,7 @@
 #include "audio/AudioEngine.h"
 #include "render/IBL.h"
 #include "ecs/ECS.h"
+#include "ecs/ECSSerializer.h"
 
 namespace engine
 {
@@ -198,6 +199,34 @@ namespace engine
             }
         }
     }
+    void Application::handlePickingECS()
+    {
+        if (!m_enablePicking || !m_input || !m_ecsBridge || !m_physics) return;
+        ImGuiIO& io = ImGui::GetIO(); if (io.WantCaptureMouse) { m_pickClickConsumed = false; return; }
+        if (!m_input->isMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT)) { m_pickClickConsumed = false; return; }
+        if (m_pickClickConsumed) return; m_pickClickConsumed = true;
+        double mx, my; m_input->getCursorPosition(mx, my);
+        int fbw, fbh; glfwGetFramebufferSize(m_window->getNativeHandle(), &fbw, &fbh);
+        int winW, winH; glfwGetWindowSize(m_window->getNativeHandle(), &winW, &winH);
+        double fx = mx * (winW > 0 ? (double)fbw / (double)winW : 1.0);
+        double fy = my * (winH > 0 ? (double)fbh / (double)winH : 1.0);
+        glm::vec3 rayDir = screenToRayDir(fx, fy, fbw, fbh, m_camera->projection(), m_camera->view());
+        glm::vec3 rayOrigin = m_camera->position();
+        physx::PxVec3 origin(rayOrigin.x, rayOrigin.y, rayOrigin.z);
+        physx::PxVec3 unitDir(rayDir.x, rayDir.y, rayDir.z);
+        float maxDist = 1000.0f; physx::PxRaycastBuffer hit; physx::PxScene* sc = m_physics->scene(); if (!sc) return;
+        bool status = sc->raycast(origin, unitDir, maxDist, hit); if (!status || !hit.hasBlock) return;
+        physx::PxRigidActor* actor = hit.block.actor; if (!actor) return;
+        auto& reg = m_ecsBridge->reg();
+        entt::entity found = entt::null;
+        auto v = reg.view<PhysActorC>();
+        for (auto e : v)
+        {
+            if ((physx::PxRigidActor*)v.get<PhysActorC>(e).actor == actor) { found = e; break; }
+        }
+        if (found != entt::null)
+            m_ecsBridge->data().selected = found;
+    }
     void Application::createPhysicsForEntity(int entityIndex)
     {
         if (!m_physics) return;
@@ -242,6 +271,60 @@ namespace engine
         m_physBindings.clear();
         for (int i = 0; i < (int)m_scene->entities().size(); ++i)
             createPhysicsForEntity(i);
+    }
+    void Application::rebuildPhysicsFromECS()
+    {
+        if (!m_ecsBridge || !m_physics) return;
+        auto& reg = m_ecsBridge->reg();
+        // Clear previous ECS actors
+        auto va = reg.view<PhysActorC>();
+        for (auto e : va) { va.get<PhysActorC>(e).actor = nullptr; }
+        // Create actors for entities with RigidBodyC + BoxColliderC
+        auto v = reg.view<TransformC, RigidBodyC, BoxColliderC>();
+        for (auto e : v)
+        {
+            auto& tr = v.get<TransformC>(e);
+            auto& rb = v.get<RigidBodyC>(e);
+            auto& bc = v.get<BoxColliderC>(e);
+            void* actor = nullptr;
+            if (rb.isStatic)
+            {
+                // approximate static by zero density dynamic for now
+                actor = m_physics->addDynamicBox(tr.position.x, tr.position.y, tr.position.z, bc.hx, bc.hy, bc.hz, 0.0f);
+            }
+            else
+            {
+                float density = std::max(0.001f, rb.mass);
+                actor = m_physics->addDynamicBox(tr.position.x, tr.position.y, tr.position.z, bc.hx, bc.hy, bc.hz, density);
+            }
+            if (!reg.any_of<PhysActorC>(e)) reg.emplace<PhysActorC>(e);
+            reg.get<PhysActorC>(e).actor = actor;
+        }
+    }
+    void Application::syncECSFromPhysics(float dt)
+    {
+        if (!m_physics || !m_ecsBridge) return;
+        auto& reg = m_ecsBridge->reg();
+        m_physics->simulate(dt);
+        auto v = reg.view<PhysActorC, TransformC>();
+        for (auto e : v)
+        {
+            void* pa = v.get<PhysActorC>(e).actor; if (!pa) continue;
+            physx::PxRigidDynamic* body = reinterpret_cast<physx::PxRigidDynamic*>(pa);
+            physx::PxTransform p = body->getGlobalPose();
+            auto& t = v.get<TransformC>(e);
+            t.position = { p.p.x, p.p.y, p.p.z };
+            float qw = p.q.w, qx = p.q.x, qy = p.q.y, qz = p.q.z;
+            float sinr_cosp = 2.0f * (qw * qx + qy * qz);
+            float cosr_cosp = 1.0f - 2.0f * (qx * qx + qy * qy);
+            float roll = std::atan2(sinr_cosp, cosr_cosp);
+            float sinp = 2.0f * (qw * qy - qz * qx);
+            float pitch = std::abs(sinp) >= 1 ? std::copysign(3.14159265f / 2.0f, sinp) : std::asin(sinp);
+            float siny_cosp = 2.0f * (qw * qz + qx * qy);
+            float cosy_cosp = 1.0f - 2.0f * (qy * qy + qz * qz);
+            float yaw = std::atan2(siny_cosp, cosy_cosp);
+            t.rotationEuler = { pitch, yaw, roll };
+        }
     }
     static void glfw_error_callback(int error, const char* description)
     {
@@ -624,7 +707,7 @@ namespace engine
             if (m_physics->createDefaultScene(-9.81f))
             {
                 m_physics->addGroundPlane();
-                rebuildPhysicsFromScene();
+                rebuildPhysicsFromECS();
             }
         }
 
@@ -1066,6 +1149,13 @@ namespace engine
                     float fps = (avgDt > 0.0f) ? (1.0f / avgDt) : 0.0f;
                     ImGui::Text("FPS: %.1f  (dt: %.3f ms)", fps, avgDt * 1000.0f);
                     ImGui::Text("VSync: %s", m_vsync ? "ON" : "OFF");
+                    ImGui::Separator();
+                    ImGui::Text("ECS Scene");
+                    static char ecsPath[260] = "ecs_scene.json";
+                    ImGui::InputText("ECS Path", ecsPath, sizeof(ecsPath));
+                    if (ImGui::Button("Save ECS")) { if (m_ecsBridge) ECSSerializer::save(m_ecsBridge->data(), ecsPath); }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Load ECS")) { if (m_ecsBridge) ECSSerializer::load(m_ecsBridge->data(), ecsPath, m_resources.get()); }
                 }
                 ImGui::End();
             }, &m_panelTools);
@@ -1163,8 +1253,9 @@ namespace engine
                             const auto& tag = view.get<TagC>(e);
                             const char* name = tag.name.c_str();
                             bool hasMesh = reg.any_of<MeshRendererC>(e);
-                            bool hasLight = reg.any_of<DirectionalLightC, PointLightC>(e);
+                            bool hasLight = reg.any_of<DirectionalLightC, PointLightC, SpotLightC>(e);
                             bool hasPart = reg.any_of<ParticleEmitterC>(e);
+                            bool hasPhys = reg.any_of<RigidBodyC, BoxColliderC>(e);
                             std::string label = std::string(hasMesh?"[M]": hasLight?"[L]": hasPart?"[P]":"[ ]") + " " + name;
                             bool sel = (ecsSelected==e);
                             if (ImGui::Selectable(label.c_str(), sel)) ecsSelected = e;
@@ -1176,6 +1267,18 @@ namespace engine
                 {
                     if (ImGui::Begin("Inspector (ECS)", &g_panelInspectorECS))
                     {
+                        // Add Component popup
+                        if (ImGui::Button("Add Component")) ImGui::OpenPopup("ecs_add_component");
+                        if (ImGui::BeginPopup("ecs_add_component"))
+                        {
+                            if (!reg.any_of<MeshRendererC>(ecsSelected) && ImGui::MenuItem("MeshRenderer")) reg.emplace<MeshRendererC>(ecsSelected);
+                            if (!reg.any_of<DirectionalLightC>(ecsSelected) && ImGui::MenuItem("DirectionalLight")) reg.emplace<DirectionalLightC>(ecsSelected);
+                            if (!reg.any_of<PointLightC>(ecsSelected) && ImGui::MenuItem("PointLight")) reg.emplace<PointLightC>(ecsSelected);
+                            if (!reg.any_of<SpotLightC>(ecsSelected) && ImGui::MenuItem("SpotLight")) reg.emplace<SpotLightC>(ecsSelected);
+                            if (!reg.any_of<ParticleEmitterC>(ecsSelected) && ImGui::MenuItem("ParticleEmitter")) reg.emplace<ParticleEmitterC>(ecsSelected);
+                            ImGui::EndPopup();
+                        }
+
                         // Name
                         if (auto tag = reg.try_get<TagC>(ecsSelected))
                         {
@@ -1196,18 +1299,47 @@ namespace engine
                         bool hasPtL  = reg.any_of<PointLightC>(ecsSelected);
                         bool hasSpL  = reg.any_of<SpotLightC>(ecsSelected);
                         bool hasPE   = reg.any_of<ParticleEmitterC>(ecsSelected);
+                        bool hasRB   = reg.any_of<RigidBodyC>(ecsSelected);
+                        bool hasBC   = reg.any_of<BoxColliderC>(ecsSelected);
                         if (ImGui::CollapsingHeader("Components"))
                         {
-                            if (ImGui::Checkbox("MeshRenderer", &hasMesh)) { if (hasMesh) reg.emplace<MeshRendererC>(ecsSelected); else if (reg.any_of<MeshRendererC>(ecsSelected)) reg.remove<MeshRendererC>(ecsSelected);} 
-                            if (ImGui::Checkbox("DirectionalLight", &hasDirL)) { if (hasDirL) reg.emplace<DirectionalLightC>(ecsSelected); else if (reg.any_of<DirectionalLightC>(ecsSelected)) reg.remove<DirectionalLightC>(ecsSelected);} 
-                            if (ImGui::Checkbox("PointLight", &hasPtL)) { if (hasPtL) reg.emplace<PointLightC>(ecsSelected); else if (reg.any_of<PointLightC>(ecsSelected)) reg.remove<PointLightC>(ecsSelected);} 
-                            if (ImGui::Checkbox("SpotLight", &hasSpL)) { if (hasSpL) reg.emplace<SpotLightC>(ecsSelected); else if (reg.any_of<SpotLightC>(ecsSelected)) reg.remove<SpotLightC>(ecsSelected);} 
-                            if (ImGui::Checkbox("ParticleEmitter", &hasPE)) { if (hasPE) reg.emplace<ParticleEmitterC>(ecsSelected); else if (reg.any_of<ParticleEmitterC>(ecsSelected)) reg.remove<ParticleEmitterC>(ecsSelected);} 
+                            if (ImGui::Checkbox("MeshRenderer##toggle", &hasMesh)) { if (hasMesh) reg.emplace<MeshRendererC>(ecsSelected); else if (reg.any_of<MeshRendererC>(ecsSelected)) reg.remove<MeshRendererC>(ecsSelected);} 
+                            if (ImGui::Checkbox("DirectionalLight##toggle", &hasDirL)) { if (hasDirL) reg.emplace<DirectionalLightC>(ecsSelected); else if (reg.any_of<DirectionalLightC>(ecsSelected)) reg.remove<DirectionalLightC>(ecsSelected);} 
+                            if (ImGui::Checkbox("PointLight##toggle", &hasPtL)) { if (hasPtL) reg.emplace<PointLightC>(ecsSelected); else if (reg.any_of<PointLightC>(ecsSelected)) reg.remove<PointLightC>(ecsSelected);} 
+                            if (ImGui::Checkbox("SpotLight##toggle", &hasSpL)) { if (hasSpL) reg.emplace<SpotLightC>(ecsSelected); else if (reg.any_of<SpotLightC>(ecsSelected)) reg.remove<SpotLightC>(ecsSelected);} 
+                            if (ImGui::Checkbox("ParticleEmitter##toggle", &hasPE)) { if (hasPE) reg.emplace<ParticleEmitterC>(ecsSelected); else if (reg.any_of<ParticleEmitterC>(ecsSelected)) reg.remove<ParticleEmitterC>(ecsSelected);} 
+                            if (ImGui::Checkbox("RigidBody##toggle", &hasRB)) { if (hasRB) reg.emplace<RigidBodyC>(ecsSelected); else if (reg.any_of<RigidBodyC>(ecsSelected)) reg.remove<RigidBodyC>(ecsSelected);} 
+                            if (ImGui::Checkbox("BoxCollider##toggle", &hasBC)) { if (hasBC) reg.emplace<BoxColliderC>(ecsSelected); else if (reg.any_of<BoxColliderC>(ecsSelected)) reg.remove<BoxColliderC>(ecsSelected);} 
+                        }
+                        if (auto rb = reg.try_get<RigidBodyC>(ecsSelected))
+                        {
+                            if (ImGui::CollapsingHeader("RigidBody", ImGuiTreeNodeFlags_DefaultOpen))
+                            {
+                                ImGui::SameLine(); if (ImGui::SmallButton("Remove##rb")) { reg.remove<RigidBodyC>(ecsSelected); goto ecs_inspector_end_components; }
+                                ImGui::Checkbox("Static", &rb->isStatic);
+                                ImGui::Checkbox("Kinematic", &rb->isKinematic);
+                                ImGui::DragFloat("Mass", &rb->mass, 0.01f, 0.001f, 1000.0f);
+                                ImGui::DragFloat("Friction", &rb->friction, 0.01f, 0.0f, 1.0f);
+                                ImGui::DragFloat("Restitution", &rb->restitution, 0.01f, 0.0f, 1.0f);
+                                if (ImGui::Button("Rebuild Physics")) rebuildPhysicsFromECS();
+                            }
+                        }
+                        if (auto bc = reg.try_get<BoxColliderC>(ecsSelected))
+                        {
+                            if (ImGui::CollapsingHeader("BoxCollider", ImGuiTreeNodeFlags_DefaultOpen))
+                            {
+                                ImGui::SameLine(); if (ImGui::SmallButton("Remove##bc")) { reg.remove<BoxColliderC>(ecsSelected); goto ecs_inspector_end_components; }
+                                ImGui::DragFloat3("Half Extents", &bc->hx, 0.01f, 0.01f, 100.0f);
+                                if (ImGui::Button("Rebuild Physics##bc")) rebuildPhysicsFromECS();
+                            }
                         }
                         // Per-component UIs (minimal)
                         if (auto mr = reg.try_get<MeshRendererC>(ecsSelected))
                         {
-                            ImGui::Text("MeshRenderer");
+                            if (ImGui::CollapsingHeader("MeshRenderer", ImGuiTreeNodeFlags_DefaultOpen))
+                            {
+                                ImGui::SameLine();
+                                if (ImGui::SmallButton("Remove##mr")) { reg.remove<MeshRendererC>(ecsSelected); goto ecs_inspector_end_components; }
                             ImGui::Checkbox("Use PBR", &mr->usePBR);
                             // Material asset path
                             static char matBuf[260];
@@ -1225,34 +1357,52 @@ namespace engine
                                     mr->usePBR = true;
                                 }
                             }
+                            }
                         }
                         if (auto dl = reg.try_get<DirectionalLightC>(ecsSelected))
                         {
-                            ImGui::ColorEdit3("DirLight Color", &dl->color.x);
-                            ImGui::DragFloat("Intensity", &dl->intensity, 0.01f, 0.0f, 10.0f);
-                            ImGui::DragFloat3("Direction", &dl->direction.x, 0.01f);
+                            if (ImGui::CollapsingHeader("DirectionalLight", ImGuiTreeNodeFlags_DefaultOpen))
+                            {
+                                ImGui::SameLine(); if (ImGui::SmallButton("Remove##dl")) { reg.remove<DirectionalLightC>(ecsSelected); goto ecs_inspector_end_components; }
+                                ImGui::ColorEdit3("DirLight Color", &dl->color.x);
+                                ImGui::DragFloat("Intensity", &dl->intensity, 0.01f, 0.0f, 10.0f);
+                                ImGui::DragFloat3("Direction", &dl->direction.x, 0.01f);
+                            }
                         }
                         if (auto pl = reg.try_get<PointLightC>(ecsSelected))
                         {
-                            ImGui::ColorEdit3("Point Color", &pl->color.x);
-                            ImGui::DragFloat("Intensity", &pl->intensity, 0.01f, 0.0f, 10.0f);
-                            ImGui::DragFloat("Range", &pl->range, 0.1f, 0.1f, 200.0f);
+                            if (ImGui::CollapsingHeader("PointLight", ImGuiTreeNodeFlags_DefaultOpen))
+                            {
+                                ImGui::SameLine(); if (ImGui::SmallButton("Remove##pl")) { reg.remove<PointLightC>(ecsSelected); goto ecs_inspector_end_components; }
+                                ImGui::ColorEdit3("Point Color", &pl->color.x);
+                                ImGui::DragFloat("Intensity", &pl->intensity, 0.01f, 0.0f, 10.0f);
+                                ImGui::DragFloat("Range", &pl->range, 0.1f, 0.1f, 200.0f);
+                            }
                         }
                         if (auto sl = reg.try_get<SpotLightC>(ecsSelected))
                         {
-                            ImGui::ColorEdit3("Spot Color", &sl->color.x);
-                            ImGui::DragFloat("Intensity", &sl->intensity, 0.01f, 0.0f, 10.0f);
-                            ImGui::DragFloat3("Direction", &sl->direction.x, 0.01f);
-                            ImGui::DragFloat("Inner (deg)", &sl->innerDegrees, 0.1f, 1.0f, 89.0f);
-                            ImGui::DragFloat("Outer (deg)", &sl->outerDegrees, 0.1f, 1.0f, 89.0f);
-                            ImGui::DragFloat("Near", &sl->nearPlane, 0.01f, 0.01f, 5.0f);
-                            ImGui::DragFloat("Far", &sl->farPlane, 0.1f, 1.0f, 200.0f);
+                            if (ImGui::CollapsingHeader("SpotLight", ImGuiTreeNodeFlags_DefaultOpen))
+                            {
+                                ImGui::SameLine(); if (ImGui::SmallButton("Remove##sl")) { reg.remove<SpotLightC>(ecsSelected); goto ecs_inspector_end_components; }
+                                ImGui::ColorEdit3("Spot Color", &sl->color.x);
+                                ImGui::DragFloat("Intensity", &sl->intensity, 0.01f, 0.0f, 10.0f);
+                                ImGui::DragFloat3("Direction", &sl->direction.x, 0.01f);
+                                ImGui::DragFloat("Inner (deg)", &sl->innerDegrees, 0.1f, 1.0f, 89.0f);
+                                ImGui::DragFloat("Outer (deg)", &sl->outerDegrees, 0.1f, 1.0f, 89.0f);
+                                ImGui::DragFloat("Near", &sl->nearPlane, 0.01f, 0.01f, 5.0f);
+                                ImGui::DragFloat("Far", &sl->farPlane, 0.1f, 1.0f, 200.0f);
+                            }
                         }
                         if (auto pe = reg.try_get<ParticleEmitterC>(ecsSelected))
                         {
-                            ImGui::Checkbox("Emit", &pe->emit);
-                            ImGui::DragFloat("Rate", &pe->rate, 1.0f, 0.0f, 1000.0f);
+                            if (ImGui::CollapsingHeader("ParticleEmitter", ImGuiTreeNodeFlags_DefaultOpen))
+                            {
+                                ImGui::SameLine(); if (ImGui::SmallButton("Remove##pe")) { reg.remove<ParticleEmitterC>(ecsSelected); goto ecs_inspector_end_components; }
+                                ImGui::Checkbox("Emit", &pe->emit);
+                                ImGui::DragFloat("Rate", &pe->rate, 1.0f, 0.0f, 1000.0f);
+                            }
                         }
+ecs_inspector_end_components: ;
                     }
                     ImGui::End();
                 }
@@ -1323,30 +1473,8 @@ namespace engine
                 m_scene->entities()[i].transform.rotationEuler.y = angle * (1.0f + 0.2f * (float)i);
             }
 
-            // Step physics and sync bound entities
-            if (m_physics)
-            {
-                m_physics->simulate(dt);
-                for (const auto& b : m_physBindings)
-                {
-                    if (b.entityIndex < 0 || b.entityIndex >= (int)m_scene->entities().size()) continue;
-                    physx::PxRigidDynamic* body = reinterpret_cast<physx::PxRigidDynamic*>(b.actor);
-                    physx::PxTransform p = body->getGlobalPose();
-                    auto& t = m_scene->entities()[b.entityIndex].transform;
-                    t.position = { p.p.x, p.p.y, p.p.z };
-                    float qw = p.q.w, qx = p.q.x, qy = p.q.y, qz = p.q.z;
-                    float sinr_cosp = 2.0f * (qw * qx + qy * qz);
-                    float cosr_cosp = 1.0f - 2.0f * (qx * qx + qy * qy);
-                    float roll = std::atan2(sinr_cosp, cosr_cosp);
-                    float sinp = 2.0f * (qw * qy - qz * qx);
-                    float pitch = std::abs(sinp) >= 1 ? std::copysign(3.14159265f / 2.0f, sinp) : std::asin(sinp);
-                    float siny_cosp = 2.0f * (qw * qz + qx * qy);
-                    float cosy_cosp = 1.0f - 2.0f * (qy * qy + qz * qz);
-                    float yaw = std::atan2(siny_cosp, cosy_cosp);
-                    t.rotationEuler = { pitch, yaw, roll };
-                }
-                handlePicking();
-            }
+            // ECS physics update + picking
+            if (m_physics) { syncECSFromPhysics(dt); handlePickingECS(); }
 
             // Lua update
             if (m_lua) m_lua->onUpdate(dt);
@@ -1440,13 +1568,35 @@ namespace engine
                         glm::mat4 vp = proj * lightView;
                         memcpy(m_cascadeMatrices[c], &vp[0][0], sizeof(float)*16);
                         m_csm->beginCascade(c);
-                        for (const auto& e : m_scene->getEntities())
+                        if (m_renderFromECS && m_ecsBridge)
                         {
-                            glm::mat4 model = e.transform.modelMatrix();
-                            m_depthShader->bind();
-                            m_depthShader->setMat4("u_LightVP", &vp[0][0]);
-                            m_depthShader->setMat4("u_Model", &model[0][0]);
-                            e.mesh->draw();
+                            auto& reg = m_ecsBridge->reg();
+                            auto v = reg.view<TransformC, MeshRendererC>();
+                            for (auto ent : v)
+                            {
+                                const auto& tr = v.get<TransformC>(ent);
+                                const auto& mr = v.get<MeshRendererC>(ent);
+                                if (!mr.mesh) continue;
+                                glm::mat4 T = glm::translate(glm::mat4(1.0f), tr.position);
+                                glm::mat4 R = glm::yawPitchRoll(tr.rotationEuler.y, tr.rotationEuler.x, tr.rotationEuler.z);
+                                glm::mat4 S = glm::scale(glm::mat4(1.0f), tr.scale);
+                                glm::mat4 model = T * R * S;
+                                m_depthShader->bind();
+                                m_depthShader->setMat4("u_LightVP", &vp[0][0]);
+                                m_depthShader->setMat4("u_Model", &model[0][0]);
+                                mr.mesh->draw();
+                            }
+                        }
+                        else
+                        {
+                            for (const auto& e : m_scene->getEntities())
+                            {
+                                glm::mat4 model = e.transform.modelMatrix();
+                                m_depthShader->bind();
+                                m_depthShader->setMat4("u_LightVP", &vp[0][0]);
+                                m_depthShader->setMat4("u_Model", &model[0][0]);
+                                e.mesh->draw();
+                            }
                         }
                         m_depthShader->unbind();
                         prevEnd = endZ;
@@ -1471,15 +1621,39 @@ namespace engine
                 {
                     m_pointShadowMap->beginFace(f);
                     glm::mat4 view = glm::lookAt(lp, lp + dirs[f], ups[f]);
-                    for (const auto& e : m_scene->getEntities())
+                    if (m_renderFromECS && m_ecsBridge)
                     {
-                        glm::mat4 model = e.transform.modelMatrix();
-                        m_pointDepthShader->bind();
-                        m_pointDepthShader->setMat4("u_Proj", &proj[0][0]);
-                        m_pointDepthShader->setMat4("u_View", &view[0][0]);
-                        m_pointDepthShader->setMat4("u_Model", &model[0][0]);
-                        m_pointDepthShader->setVec3("u_LightPos", lp.x, lp.y, lp.z);
-                        e.mesh->draw();
+                        auto& reg = m_ecsBridge->reg();
+                        auto v = reg.view<TransformC, MeshRendererC>();
+                        for (auto ent : v)
+                        {
+                            const auto& tr = v.get<TransformC>(ent);
+                            const auto& mr = v.get<MeshRendererC>(ent);
+                            if (!mr.mesh) continue;
+                            glm::mat4 T = glm::translate(glm::mat4(1.0f), tr.position);
+                            glm::mat4 R = glm::yawPitchRoll(tr.rotationEuler.y, tr.rotationEuler.x, tr.rotationEuler.z);
+                            glm::mat4 S = glm::scale(glm::mat4(1.0f), tr.scale);
+                            glm::mat4 model = T * R * S;
+                            m_pointDepthShader->bind();
+                            m_pointDepthShader->setMat4("u_Proj", &proj[0][0]);
+                            m_pointDepthShader->setMat4("u_View", &view[0][0]);
+                            m_pointDepthShader->setMat4("u_Model", &model[0][0]);
+                            m_pointDepthShader->setVec3("u_LightPos", lp.x, lp.y, lp.z);
+                            mr.mesh->draw();
+                        }
+                    }
+                    else
+                    {
+                        for (const auto& e : m_scene->getEntities())
+                        {
+                            glm::mat4 model = e.transform.modelMatrix();
+                            m_pointDepthShader->bind();
+                            m_pointDepthShader->setMat4("u_Proj", &proj[0][0]);
+                            m_pointDepthShader->setMat4("u_View", &view[0][0]);
+                            m_pointDepthShader->setMat4("u_Model", &model[0][0]);
+                            m_pointDepthShader->setVec3("u_LightPos", lp.x, lp.y, lp.z);
+                            e.mesh->draw();
+                        }
                     }
                     m_pointDepthShader->unbind();
                 }
@@ -1521,13 +1695,35 @@ namespace engine
             if (m_spotEnabled && !m_wireframe)
             {
                 m_shadowMap->begin();
-                for (const auto& e : m_scene->getEntities())
+                if (m_renderFromECS && m_ecsBridge)
                 {
-                    glm::mat4 model = e.transform.modelMatrix();
-                    m_depthShader->bind();
-                    m_depthShader->setMat4("u_LightVP", &spotVP[0][0]);
-                    m_depthShader->setMat4("u_Model", &model[0][0]);
-                    e.mesh->draw();
+                    auto& reg = m_ecsBridge->reg();
+                    auto v = reg.view<TransformC, MeshRendererC>();
+                    for (auto ent : v)
+                    {
+                        const auto& tr = v.get<TransformC>(ent);
+                        const auto& mr = v.get<MeshRendererC>(ent);
+                        if (!mr.mesh) continue;
+                        glm::mat4 T = glm::translate(glm::mat4(1.0f), tr.position);
+                        glm::mat4 R = glm::yawPitchRoll(tr.rotationEuler.y, tr.rotationEuler.x, tr.rotationEuler.z);
+                        glm::mat4 S = glm::scale(glm::mat4(1.0f), tr.scale);
+                        glm::mat4 model = T * R * S;
+                        m_depthShader->bind();
+                        m_depthShader->setMat4("u_LightVP", &spotVP[0][0]);
+                        m_depthShader->setMat4("u_Model", &model[0][0]);
+                        mr.mesh->draw();
+                    }
+                }
+                else
+                {
+                    for (const auto& e : m_scene->getEntities())
+                    {
+                        glm::mat4 model = e.transform.modelMatrix();
+                        m_depthShader->bind();
+                        m_depthShader->setMat4("u_LightVP", &spotVP[0][0]);
+                        m_depthShader->setMat4("u_Model", &model[0][0]);
+                        e.mesh->draw();
+                    }
                 }
                 m_depthShader->unbind();
                 m_shadowMap->end(display_w, display_h);
@@ -1592,8 +1788,8 @@ namespace engine
                 }
             }
 
-            // Render scene: optionally from ECS registry (MeshRendererC + TransformC)
-            if (m_renderFromECS && m_ecsBridge)
+            // Render scene: ECS registry (MeshRendererC + TransformC)
+            if (m_ecsBridge)
             {
                 auto& reg = m_ecsBridge->reg();
                 auto view = reg.view<TransformC, MeshRendererC>();
@@ -1617,15 +1813,30 @@ namespace engine
                         m_pbrShader->setMat3("u_NormalMatrix", &normalMat[0][0]);
                         m_pbrShader->setVec3("u_Cam", m_camera->position().x, m_camera->position().y, m_camera->position().z);
                         m_pbrShader->setVec3("u_LightPos", m_lightPos[0], m_lightPos[1], m_lightPos[2]);
-                        m_pbrShader->setVec3("u_Albedo", 1.0f, 1.0f, 1.0f);
-                        m_pbrShader->setFloat("u_Metallic", 0.0f);
-                        m_pbrShader->setFloat("u_Roughness", 0.8f);
-                        m_pbrShader->setFloat("u_AO", 1.0f);
-                        int useAlbedoTex = (mr.albedoTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseAlbedoTex", useAlbedoTex); if (useAlbedoTex){ m_pbrShader->setInt("u_AlbedoTex",0); mr.albedoTex->bind(0);} 
-                        m_pbrShader->setInt("u_UseMetalTex", 0);
-                        m_pbrShader->setInt("u_UseRoughTex", 0);
-                        m_pbrShader->setInt("u_UseAOTex", 0);
-                        m_pbrShader->setInt("u_UseNormalMap", 0);
+                        if (mr.material)
+                        {
+                            m_pbrShader->setVec3("u_Albedo", mr.material->albedo[0], mr.material->albedo[1], mr.material->albedo[2]);
+                            m_pbrShader->setFloat("u_Metallic", mr.material->metallic);
+                            m_pbrShader->setFloat("u_Roughness", mr.material->roughness);
+                            m_pbrShader->setFloat("u_AO", mr.material->ao);
+                            int useAlbedoTex = (mr.material->albedoTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseAlbedoTex", useAlbedoTex); if (useAlbedoTex){ m_pbrShader->setInt("u_AlbedoTex",0); mr.material->albedoTex->bind(0);} 
+                            int useMetalTex = (mr.material->metallicTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseMetalTex", useMetalTex); if (useMetalTex){ m_pbrShader->setInt("u_MetalTex",1); mr.material->metallicTex->bind(1);} 
+                            int useRoughTex = (mr.material->roughnessTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseRoughTex", useRoughTex); if (useRoughTex){ m_pbrShader->setInt("u_RoughTex",2); mr.material->roughnessTex->bind(2);} 
+                            int useAOTex = (mr.material->aoTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseAOTex", useAOTex); if (useAOTex){ m_pbrShader->setInt("u_AOTex",3); mr.material->aoTex->bind(3);} 
+                            int useNormal = (mr.material->normalTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseNormalMap", useNormal); if (useNormal){ m_pbrShader->setInt("u_NormalTex",4); mr.material->normalTex->bind(4);} 
+                        }
+                        else
+                        {
+                            m_pbrShader->setVec3("u_Albedo", 1.0f, 1.0f, 1.0f);
+                            m_pbrShader->setFloat("u_Metallic", 0.0f);
+                            m_pbrShader->setFloat("u_Roughness", 0.8f);
+                            m_pbrShader->setFloat("u_AO", 1.0f);
+                            int useAlbedoTex = (mr.albedoTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseAlbedoTex", useAlbedoTex); if (useAlbedoTex){ m_pbrShader->setInt("u_AlbedoTex",0); mr.albedoTex->bind(0);} 
+                            m_pbrShader->setInt("u_UseMetalTex", 0);
+                            m_pbrShader->setInt("u_UseRoughTex", 0);
+                            m_pbrShader->setInt("u_UseAOTex", 0);
+                            m_pbrShader->setInt("u_UseNormalMap", 0);
+                        }
                         if (m_useIBL && m_ibl && m_ibl->valid())
                         {
                             m_pbrShader->setInt("u_UseIBL", 1);
@@ -1671,33 +1882,9 @@ namespace engine
                     }
                 }
             }
-            else
-            {
-                for (size_t ei=0; ei<m_scene->getEntities().size(); ++ei)
-                {
-                    const auto& e = m_scene->getEntities()[ei];
-                    if (m_frustumCulling && ei < m_frustumVisible.size() && m_frustumVisible[ei]==0) continue;
-                    glm::mat4 model = e.transform.modelMatrix();
-                    glm::mat4 mvp = m_camera->projection() * m_camera->view() * model;
-                    glm::mat3 normalMat = glm::mat3(glm::transpose(glm::inverse(model)));
-                    e.shader->bind();
-                    e.shader->setMat4("u_MVP", &mvp[0][0]);
-                    e.shader->setMat4("u_Model", &model[0][0]);
-                    e.shader->setMat3("u_NormalMatrix", &normalMat[0][0]);
-                    e.shader->setVec3("u_CameraPos", m_camera->position().x, m_camera->position().y, m_camera->position().z);
-                    e.shader->setVec3("u_LightPos", m_lightPos[0], m_lightPos[1], m_lightPos[2]);
-                    e.shader->setVec3("u_LightColor", m_lightColor[0], m_lightColor[1], m_lightColor[2]);
-                    e.shader->setVec3("u_Albedo", e.albedo[0], e.albedo[1], e.albedo[2]);
-                    e.shader->setFloat("u_Shininess", e.shininess);
-                    if (e.useTexture && e.albedoTex)
-                    { e.shader->setInt("u_UseTexture", 1); e.shader->setInt("u_AlbedoTex", 0); e.albedoTex->bind(0);} else { e.shader->setInt("u_UseTexture", 0); }
-                    e.shader->setInt("u_ShadowsEnabled", 0);
-                    e.mesh->draw();
-                    e.shader->unbind();
-                }
-            }
+            // Legacy path removed from draw
 
-            // Debug draw colliders (boxes only)
+            // Debug draw colliders (boxes only) - legacy Scene only; TODO: ECS physics
             if (m_drawColliders && m_physics)
             {
                 bool prevWire = m_wireframe;
@@ -1742,27 +1929,39 @@ namespace engine
                 Renderer::setWireframe(prevWire);
             }
 
-            // Simple keyboard gizmo
+            // Simple keyboard gizmo (ECS)
+            if (m_ecsBridge)
             {
-                int selIdx = m_scene->selectedIndex();
-                if (selIdx >= 0)
+                static entt::entity ecsSel = entt::null;
+                // use last selection from hierarchy panel scope
+                // move selected entity with arrow keys
+                auto& reg = m_ecsBridge->reg();
+                if (ecsSel == entt::null)
                 {
-                    auto& ent = m_scene->entities()[selIdx];
-                    if (m_input->isKeyPressed(GLFW_KEY_T)) m_gizmoOp = 0;
-                    if (m_input->isKeyPressed(GLFW_KEY_R)) m_gizmoOp = 1;
-                    if (m_input->isKeyPressed(GLFW_KEY_S)) m_gizmoOp = 2;
-                    float delta = (float)m_gizmoSensitivity;
-                    if (m_input->isKeyPressed(GLFW_KEY_LEFT))
+                    // pick first entity as default
+                    auto v = reg.view<TagC>();
+                    for (auto e : v) { ecsSel = e; break; }
+                }
+                if (ecsSel != entt::null)
+                {
+                    if (auto tr = reg.try_get<TransformC>(ecsSel))
                     {
-                        if (m_gizmoOp == 0) (&ent.transform.position.x)[m_gizmoAxis] -= delta;
-                        else if (m_gizmoOp == 1) (&ent.transform.rotationEuler.x)[m_gizmoAxis] -= delta;
-                        else (&ent.transform.scale.x)[m_gizmoAxis] *= (1.0f - delta);
-                    }
-                    if (m_input->isKeyPressed(GLFW_KEY_RIGHT))
-                    {
-                        if (m_gizmoOp == 0) (&ent.transform.position.x)[m_gizmoAxis] += delta;
-                        else if (m_gizmoOp == 1) (&ent.transform.rotationEuler.x)[m_gizmoAxis] += delta;
-                        else (&ent.transform.scale.x)[m_gizmoAxis] *= (1.0f + delta);
+                        if (m_input->isKeyPressed(GLFW_KEY_T)) m_gizmoOp = 0;
+                        if (m_input->isKeyPressed(GLFW_KEY_R)) m_gizmoOp = 1;
+                        if (m_input->isKeyPressed(GLFW_KEY_S)) m_gizmoOp = 2;
+                        float delta = (float)m_gizmoSensitivity;
+                        if (m_input->isKeyPressed(GLFW_KEY_LEFT))
+                        {
+                            if (m_gizmoOp == 0) (&tr->position.x)[m_gizmoAxis] -= delta;
+                            else if (m_gizmoOp == 1) (&tr->rotationEuler.x)[m_gizmoAxis] -= delta;
+                            else (&tr->scale.x)[m_gizmoAxis] *= (1.0f - delta);
+                        }
+                        if (m_input->isKeyPressed(GLFW_KEY_RIGHT))
+                        {
+                            if (m_gizmoOp == 0) (&tr->position.x)[m_gizmoAxis] += delta;
+                            else if (m_gizmoOp == 1) (&tr->rotationEuler.x)[m_gizmoAxis] += delta;
+                            else (&tr->scale.x)[m_gizmoAxis] *= (1.0f + delta);
+                        }
                     }
                 }
             }
