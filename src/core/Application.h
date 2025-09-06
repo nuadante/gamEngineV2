@@ -30,6 +30,7 @@ namespace engine
     struct Animation;
     class Terrain;
     class LuaEngine;
+    class AudioEngine;
 
     class Application
     {
@@ -96,6 +97,11 @@ namespace engine
         // Lua scripting
         std::unique_ptr<LuaEngine> m_lua;
         bool m_luaHotReload = true;
+        // Audio
+        std::unique_ptr<AudioEngine> m_audio;
+        char m_musicPath[260] = "";
+        char m_sfxPath[260] = "";
+        unsigned int m_musicSrc = 0;
         ImVec4 m_clearColor = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
         bool m_showDemo = false;
         bool m_showAnother = false;

@@ -37,6 +37,7 @@
 #include "render/Animator.h"
 #include "render/Terrain.h"
 #include "scripting/LuaEngine.h"
+#include "audio/AudioEngine.h"
 
 namespace engine
 {
@@ -252,6 +253,10 @@ namespace engine
         m_lua = std::make_unique<LuaEngine>();
         m_lua->initialize();
         m_lua->setHotReloadEnabled(true);
+
+        // Audio
+        m_audio = std::make_unique<AudioEngine>();
+        m_audio->initialize();
 
         // Resource manager
         m_resources = std::make_unique<ResourceManager>();
@@ -692,6 +697,32 @@ namespace engine
                             m_lua->bindEntity(sel, &e);
                             e.scriptEnabled = true;
                         }
+                    }
+                }
+                ImGui::Separator();
+                ImGui::Text("Audio");
+                ImGui::InputText("Music (OGG/WAV)", m_musicPath, sizeof(m_musicPath));
+                ImGui::SameLine();
+                if (ImGui::Button("Play Music"))
+                {
+                    if (m_audio && m_musicPath[0])
+                    {
+                        auto buf = m_audio->loadSound(m_musicPath);
+                        if (buf) m_musicSrc = m_audio->play(buf, 0.6f, true);
+                    }
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Stop Music"))
+                {
+                    if (m_audio && m_musicSrc) { m_audio->stop(m_musicSrc); m_musicSrc = 0; }
+                }
+                ImGui::InputText("SFX (OGG/WAV)", m_sfxPath, sizeof(m_sfxPath));
+                if (ImGui::Button("Play SFX"))
+                {
+                    if (m_audio && m_sfxPath[0])
+                    {
+                        auto buf = m_audio->loadSound(m_sfxPath);
+                        if (buf) m_audio->play3D(buf, 0.0f, 0.0f, 0.0f, 1.0f, false);
                     }
                 }
                 ImGui::Text("Input Mapping");
@@ -1319,6 +1350,17 @@ namespace engine
                     m_particlesGravityY,
                     m_particlesAdditive);
                 m_particles->draw(&m_camera->projection()[0][0], &m_camera->view()[0][0]);
+            }
+
+            // Update audio listener from camera
+            if (m_audio)
+            {
+                glm::vec3 camPos = m_camera->position();
+                // approximate forward/up from view matrix
+                glm::mat4 V = m_camera->view();
+                glm::vec3 f(-V[0][2], -V[1][2], -V[2][2]);
+                glm::vec3 u(V[0][1], V[1][1], V[2][1]);
+                m_audio->setListener(camPos.x, camPos.y, camPos.z, f.x, f.y, f.z, u.x, u.y, u.z);
             }
 
             // Finalize ImGui and render draw data

@@ -14,6 +14,7 @@ find_package(nlohmann_json REQUIRED)
 find_package(physx REQUIRED)
 find_package(assimp REQUIRED)
 find_package(lua REQUIRED)
+find_package(OpenAL REQUIRED)
 
 # Create executable
 add_executable(${PROJECT_NAME}
@@ -39,6 +40,7 @@ add_executable(${PROJECT_NAME}
     src/core/ResourceManager.cpp
     src/scene/SceneSerializer.cpp
     src/scripting/LuaEngine.cpp
+    src/audio/AudioEngine.cpp
     src/scene/Scene.h
     src/scene/Transform.h
 )
@@ -55,6 +57,7 @@ target_link_libraries(${PROJECT_NAME}
     PhysX::PhysXExtensions
     assimp::assimp
     lua::lua
+    OpenAL::OpenAL
 )
 
 # Include directories
