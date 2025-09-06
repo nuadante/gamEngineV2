@@ -67,6 +67,7 @@ namespace engine
         std::unique_ptr<ResourceManager> m_resources;
         std::unique_ptr<ShadowMap> m_shadowMap;
         std::unique_ptr<Shader> m_depthShader;
+        std::unique_ptr<Shader> m_pbrShader;
         std::unique_ptr<PointShadowMap> m_pointShadowMap;
         std::unique_ptr<Shader> m_pointDepthShader;
         std::unique_ptr<Skybox> m_skybox;

@@ -106,6 +106,7 @@ namespace engine
         int loc = glGetUniformLocation(m_program, name);
         if (loc != -1) glUniform1i(loc, v);
     }
+    // already added setMat4Array earlier
 
     void Shader::setMat4Array(const char* name, const float* value, int count) const
     {

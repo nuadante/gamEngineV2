@@ -523,6 +523,73 @@ namespace engine
             }
         }
 
+        // PBR shader (Cook-Torrance GGX, no normal mapping for now)
+        const char* pbrVS = R"GLSL(
+            #version 330 core
+            layout (location = 0) in vec3 aPos;
+            layout (location = 1) in vec3 aNormal;
+            layout (location = 2) in vec2 aUV;
+            uniform mat4 u_Model;
+            uniform mat4 u_MVP;
+            uniform mat3 u_NormalMatrix;
+            out vec3 vN; out vec3 vW; out vec2 vUV;
+            void main(){ vec4 w = u_Model * vec4(aPos,1.0); vW=w.xyz; vN=normalize(u_NormalMatrix*aNormal); vUV=aUV; gl_Position=u_MVP*vec4(aPos,1.0);} 
+        )GLSL";
+        const char* pbrFS = R"GLSL(
+            #version 330 core
+            out vec4 FragColor;
+            in vec3 vN; in vec3 vW; in vec2 vUV;
+            uniform vec3 u_Cam;
+            uniform vec3 u_LightPos;
+            uniform vec3 u_Albedo;
+            uniform float u_Metallic; uniform float u_Roughness; uniform float u_AO;
+            uniform bool u_UseAlbedoTex; uniform sampler2D u_AlbedoTex;
+            uniform bool u_UseMetalTex; uniform sampler2D u_MetalTex;
+            uniform bool u_UseRoughTex; uniform sampler2D u_RoughTex;
+            uniform bool u_UseAOTex; uniform sampler2D u_AOTex;
+            uniform bool u_UseNormalMap; uniform sampler2D u_NormalTex;
+            float DistributionGGX(vec3 N, vec3 H, float a){ float a2=a*a; float NdotH=max(dot(N,H),0.0); float NdotH2=NdotH*NdotH; float denom=(NdotH2*(a2-1.0)+1.0); return a2/(3.14159265*denom*denom); }
+            float GeometrySchlickGGX(float NdotV, float k){ return NdotV/(NdotV*(1.0-k)+k); }
+            float GeometrySmith(vec3 N, vec3 V, vec3 L, float k){ float NdotV=max(dot(N,V),0.0); float NdotL=max(dot(N,L),0.0); float g1=GeometrySchlickGGX(NdotV,k); float g2=GeometrySchlickGGX(NdotL,k); return g1*g2; }
+            vec3 fresnelSchlick(float cosTheta, vec3 F0){ return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0); }
+            void main(){
+              vec3 N=normalize(vN);
+              if (u_UseNormalMap){
+                vec3 dp1 = dFdx(vW);
+                vec3 dp2 = dFdy(vW);
+                vec2 duv1 = dFdx(vUV);
+                vec2 duv2 = dFdy(vUV);
+                vec3 T = normalize(dp1*duv2.y - dp2*duv1.y);
+                vec3 B = normalize(cross(N, T));
+                mat3 TBN = mat3(T, B, N);
+                vec3 nTex = texture(u_NormalTex, vUV).xyz * 2.0 - 1.0;
+                N = normalize(TBN * nTex);
+              }
+              vec3 V=normalize(u_Cam - vW);
+              vec3 L=normalize(u_LightPos - vW);
+              vec3 H=normalize(V+L);
+              vec3 base = u_UseAlbedoTex? texture(u_AlbedoTex, vUV).rgb : u_Albedo;
+              float metallic = u_UseMetalTex? texture(u_MetalTex, vUV).r : u_Metallic;
+              float roughness = clamp(u_UseRoughTex? texture(u_RoughTex, vUV).r : u_Roughness, 0.04, 1.0);
+              float ao = u_UseAOTex? texture(u_AOTex, vUV).r : u_AO;
+              vec3 F0 = mix(vec3(0.04), base, metallic);
+              float NDF = DistributionGGX(N,H, roughness*roughness);
+              float G   = GeometrySmith(N,V,L, (roughness+1.0)*(roughness+1.0)/8.0);
+              vec3  F   = fresnelSchlick(max(dot(H,V),0.0), F0);
+              vec3 kS = F; vec3 kD = (vec3(1.0)-kS) * (1.0 - metallic);
+              float NdotL = max(dot(N,L),0.0);
+              vec3 spec = (NDF*G*F) / max(4.0*max(dot(N,V),0.0)*NdotL, 0.001);
+              vec3 Lo = (kD*base/3.14159265 + spec) * NdotL;
+              vec3 ambient = vec3(0.03) * base * ao;
+              FragColor = vec4(ambient + Lo, 1.0);
+            }
+        )GLSL";
+        m_pbrShader = std::make_unique<Shader>();
+        if (!m_pbrShader->compileFromSource(pbrVS, pbrFS))
+        {
+            std::cerr << "[PBR] compile failed" << std::endl;
+        }
+
         return true;
     }
 
@@ -970,6 +1037,22 @@ namespace engine
                         if (ImGui::InputText("Lua Path", scriptBuf, sizeof(scriptBuf))) { ent.scriptPath = scriptBuf; }
                         ImGui::Checkbox("Enabled", &ent.scriptEnabled);
                         if (ImGui::Button("Unload Script")) { if (m_lua && !ent.scriptPath.empty()) m_lua->unloadScript(ent.scriptPath); ent.scriptEnabled = false; }
+                        ImGui::Separator();
+                        ImGui::Text("PBR");
+                        ImGui::Checkbox("Use PBR", &ent.usePBR);
+                        ImGui::SliderFloat("Metallic", &ent.metallic, 0.0f, 1.0f);
+                        ImGui::SliderFloat("Roughness", &ent.roughness, 0.04f, 1.0f);
+                        ImGui::SliderFloat("AO", &ent.ao, 0.0f, 1.0f);
+                        static char texM[260] = ""; static char texR[260] = ""; static char texA[260] = "";
+                        if (ImGui::InputText("Metallic Tex", texM, sizeof(texM))) {}
+                        ImGui::SameLine(); if (ImGui::Button("Load M")) { if (texM[0]) ent.metallicTex = m_resources->getTextureFromFile(texM, false); }
+                        if (ImGui::InputText("Roughness Tex", texR, sizeof(texR))) {}
+                        ImGui::SameLine(); if (ImGui::Button("Load R")) { if (texR[0]) ent.roughnessTex = m_resources->getTextureFromFile(texR, false); }
+                        if (ImGui::InputText("AO Tex", texA, sizeof(texA))) {}
+                        ImGui::SameLine(); if (ImGui::Button("Load AO")) { if (texA[0]) ent.aoTex = m_resources->getTextureFromFile(texA, false); }
+                        static char texN[260] = "";
+                        if (ImGui::InputText("Normal Tex", texN, sizeof(texN))) {}
+                        ImGui::SameLine(); if (ImGui::Button("Load N")) { if (texN[0]) ent.normalTex = m_resources->getTextureFromFile(texN, false); }
                     }
                 }
                 ImGui::End();
@@ -1205,6 +1288,30 @@ namespace engine
                 glm::mat4 mvp = m_camera->projection() * m_camera->view() * model;
                 glm::mat3 normalMat = glm::mat3(glm::transpose(glm::inverse(model)));
 
+                if (e.usePBR && m_pbrShader)
+                {
+                    m_pbrShader->bind();
+                    m_pbrShader->setMat4("u_MVP", &mvp[0][0]);
+                    m_pbrShader->setMat4("u_Model", &model[0][0]);
+                    m_pbrShader->setMat3("u_NormalMatrix", &normalMat[0][0]);
+                    m_pbrShader->setVec3("u_Cam", m_camera->position().x, m_camera->position().y, m_camera->position().z);
+                    m_pbrShader->setVec3("u_LightPos", m_lightPos[0], m_lightPos[1], m_lightPos[2]);
+                    m_pbrShader->setVec3("u_Albedo", e.albedo[0], e.albedo[1], e.albedo[2]);
+                    m_pbrShader->setFloat("u_Metallic", e.metallic);
+                    m_pbrShader->setFloat("u_Roughness", e.roughness);
+                    m_pbrShader->setFloat("u_AO", e.ao);
+                    int useAlbedoTex = (e.useTexture && e.albedoTex) ? 1 : 0;
+                    m_pbrShader->setInt("u_UseAlbedoTex", useAlbedoTex);
+                    if (useAlbedoTex) { m_pbrShader->setInt("u_AlbedoTex", 0); e.albedoTex->bind(0); }
+                    int useM = (e.metallicTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseMetalTex", useM); if (useM){ m_pbrShader->setInt("u_MetalTex",1); e.metallicTex->bind(1);} 
+                    int useR = (e.roughnessTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseRoughTex", useR); if (useR){ m_pbrShader->setInt("u_RoughTex",2); e.roughnessTex->bind(2);} 
+                    int useA = (e.aoTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseAOTex", useA); if (useA){ m_pbrShader->setInt("u_AOTex",3); e.aoTex->bind(3);} 
+                    int useN = (e.normalTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseNormalMap", useN); if (useN){ m_pbrShader->setInt("u_NormalTex",4); e.normalTex->bind(4);} 
+                    e.mesh->draw();
+                    m_pbrShader->unbind();
+                    continue;
+                }
+
                 e.shader->bind();
                 e.shader->setMat4("u_MVP", &mvp[0][0]);
                 e.shader->setMat4("u_Model", &model[0][0]);
@@ -1240,7 +1347,7 @@ namespace engine
                 e.shader->setFloat("u_SpotCosOuter", cos(glm::radians(m_spotOuter)));
                 e.shader->setMat4("u_SpotVP", &spotVP[0][0]);
                 e.shader->setFloat("u_SpotBias", m_spotBias);
-                // point light uniforms (sampling to be added in shader later)
+                // point light
                 e.shader->setVec3("u_PointLightPos", m_pointLightPos[0], m_pointLightPos[1], m_pointLightPos[2]);
                 e.shader->setVec3("u_PointLightColor", m_pointLightColor[0], m_pointLightColor[1], m_pointLightColor[2]);
                 e.shader->setFloat("u_PointShadowFar", m_pointShadowFar);

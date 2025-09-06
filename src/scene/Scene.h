@@ -22,6 +22,15 @@ namespace engine
         float albedo[3] = {1.0f, 0.7f, 0.2f};
         float shininess = 64.0f;
         bool useTexture = true;
+        // PBR material
+        bool usePBR = false;
+        float metallic = 0.0f;
+        float roughness = 0.5f;
+        float ao = 1.0f;
+        Texture2D* metallicTex = nullptr;
+        Texture2D* roughnessTex = nullptr;
+        Texture2D* aoTex = nullptr;
+        Texture2D* normalTex = nullptr;
         // physics
         bool hasRigidBody = false;
         bool isKinematic = false; // if dynamic and kinematic
