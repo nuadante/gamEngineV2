@@ -1249,7 +1249,7 @@ namespace engine
                 }
 
                 // Hierarchy
-                if (ImGui::Begin("Hierarchy"))
+                if (ImGui::Begin("Hierarchy (Legacy)"))
                 {
                     if (ImGui::Button("Add Cube"))
                     {
@@ -1279,8 +1279,7 @@ namespace engine
                         if (m_physics)
                         {
                             void* act = m_physics->addDynamicBox(0.0f, 5.0f, 0.0f, 0.5f, 0.5f, 0.5f, 1.0f);
-                            if (act)
-                                m_physBindings.push_back({ act, e });
+                            if (act) m_physBindings.push_back({ act, e });
                         }
                     }
                     auto& es = m_scene->entities();
@@ -1299,6 +1298,7 @@ namespace engine
                         }
                     }
                 }
+                ImGui::End();
                 // Save/Load ->
                 if (m_ui) m_ui->drawPanels();
                 // Save/Load
@@ -1310,7 +1310,7 @@ namespace engine
                 ImGui::End();
 
                 // Inspector
-                if (ImGui::Begin("Inspector"))
+                if (ImGui::Begin("Inspector (Legacy)"))
                 {
                     int sel = m_scene->selectedIndex();
                     if (sel >= 0)
@@ -1450,8 +1450,6 @@ namespace engine
                         ImGui::SameLine(); if (ImGui::Button("Load N")) { if (texN[0]) ent.normalTex = m_resources->getTextureFromFile(texN, false); }
                     }
                 }
-                // -> replaced by panels
-                if (m_ui) {/* already drawn via panels*/}
                 ImGui::End();
             }
 
