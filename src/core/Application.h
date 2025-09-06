@@ -31,6 +31,7 @@ namespace engine
     class Terrain;
     class LuaEngine;
     class AudioEngine;
+    class IBL;
 
     class Application
     {
@@ -103,6 +104,10 @@ namespace engine
         char m_musicPath[260] = "";
         char m_sfxPath[260] = "";
         unsigned int m_musicSrc = 0;
+        // IBL
+        std::unique_ptr<IBL> m_ibl;
+        bool m_useIBL = false;
+        char m_hdrPath[260] = "";
         ImVec4 m_clearColor = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
         bool m_showDemo = false;
         bool m_showAnother = false;

@@ -38,6 +38,7 @@
 #include "render/Terrain.h"
 #include "scripting/LuaEngine.h"
 #include "audio/AudioEngine.h"
+#include "render/IBL.h"
 
 namespace engine
 {
@@ -548,6 +549,7 @@ namespace engine
             uniform bool u_UseRoughTex; uniform sampler2D u_RoughTex;
             uniform bool u_UseAOTex; uniform sampler2D u_AOTex;
             uniform bool u_UseNormalMap; uniform sampler2D u_NormalTex;
+            uniform bool u_UseIBL; uniform samplerCube u_IrradianceMap; uniform samplerCube u_PrefilterMap; uniform sampler2D u_BRDFLUT;
             float DistributionGGX(vec3 N, vec3 H, float a){ float a2=a*a; float NdotH=max(dot(N,H),0.0); float NdotH2=NdotH*NdotH; float denom=(NdotH2*(a2-1.0)+1.0); return a2/(3.14159265*denom*denom); }
             float GeometrySchlickGGX(float NdotV, float k){ return NdotV/(NdotV*(1.0-k)+k); }
             float GeometrySmith(vec3 N, vec3 V, vec3 L, float k){ float NdotV=max(dot(N,V),0.0); float NdotL=max(dot(N,L),0.0); float g1=GeometrySchlickGGX(NdotV,k); float g2=GeometrySchlickGGX(NdotL,k); return g1*g2; }
@@ -580,7 +582,19 @@ namespace engine
               float NdotL = max(dot(N,L),0.0);
               vec3 spec = (NDF*G*F) / max(4.0*max(dot(N,V),0.0)*NdotL, 0.001);
               vec3 Lo = (kD*base/3.14159265 + spec) * NdotL;
-              vec3 ambient = vec3(0.03) * base * ao;
+              vec3 ambient;
+              if (u_UseIBL){
+                vec3 irradiance = texture(u_IrradianceMap, N).rgb;
+                vec3 diffuse = irradiance * base;
+                vec3 R = reflect(-V, N);
+                const float MAX_LOD = 4.0;
+                vec3 prefiltered = textureLod(u_PrefilterMap, R, roughness * MAX_LOD).rgb;
+                vec2 brdf = texture(u_BRDFLUT, vec2(max(dot(N,V),0.0), roughness)).rg;
+                vec3 specIBL = prefiltered * (F * brdf.x + brdf.y);
+                ambient = (kD * diffuse + specIBL) * ao;
+              } else {
+                ambient = vec3(0.03) * base * ao;
+              }
               FragColor = vec4(ambient + Lo, 1.0);
             }
         )GLSL";
@@ -712,6 +726,15 @@ namespace engine
                     }
                 }
                 if (m_skybox) m_skybox->setUseCubemap(useCube);
+                ImGui::Separator();
+                ImGui::Text("IBL");
+                ImGui::Checkbox("Use IBL", &m_useIBL);
+                ImGui::InputText("HDR Path", m_hdrPath, sizeof(m_hdrPath));
+                if (ImGui::Button("Load HDR"))
+                {
+                    if (!m_ibl) m_ibl = std::make_unique<IBL>();
+                    if (m_hdrPath[0]) m_useIBL = m_ibl->createFromHDR(m_hdrPath);
+                }
                 ImGui::Separator();
                 ImGui::Text("Camera");
                 ImGui::Checkbox("Orbit Mode (RMB drag + scroll)", &m_orbitMode);
@@ -1307,6 +1330,14 @@ namespace engine
                     int useR = (e.roughnessTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseRoughTex", useR); if (useR){ m_pbrShader->setInt("u_RoughTex",2); e.roughnessTex->bind(2);} 
                     int useA = (e.aoTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseAOTex", useA); if (useA){ m_pbrShader->setInt("u_AOTex",3); e.aoTex->bind(3);} 
                     int useN = (e.normalTex!=nullptr)?1:0; m_pbrShader->setInt("u_UseNormalMap", useN); if (useN){ m_pbrShader->setInt("u_NormalTex",4); e.normalTex->bind(4);} 
+                    if (m_useIBL && m_ibl && m_ibl->valid())
+                    {
+                        m_pbrShader->setInt("u_UseIBL", 1);
+                        m_pbrShader->setInt("u_IrradianceMap", 5); glActiveTexture(GL_TEXTURE0+5); glBindTexture(GL_TEXTURE_CUBE_MAP, m_ibl->irradianceMap());
+                        m_pbrShader->setInt("u_PrefilterMap", 6); glActiveTexture(GL_TEXTURE0+6); glBindTexture(GL_TEXTURE_CUBE_MAP, m_ibl->prefilterMap());
+                        m_pbrShader->setInt("u_BRDFLUT", 7); glActiveTexture(GL_TEXTURE0+7); glBindTexture(GL_TEXTURE_2D, m_ibl->brdfLUT());
+                    }
+                    else m_pbrShader->setInt("u_UseIBL", 0);
                     e.mesh->draw();
                     m_pbrShader->unbind();
                     continue;

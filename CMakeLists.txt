@@ -37,6 +37,7 @@ add_executable(${PROJECT_NAME}
     src/render/Animator.cpp
     src/render/Terrain.cpp
     src/render/ParticleSystem.cpp
+    src/render/IBL.cpp
     src/core/ResourceManager.cpp
     src/scene/SceneSerializer.cpp
     src/scripting/LuaEngine.cpp
