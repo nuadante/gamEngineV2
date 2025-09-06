@@ -28,6 +28,16 @@ namespace engine
         ImGui::NewFrame();
     }
 
+    void UIManager::registerPanel(const std::function<void()>& panel)
+    {
+        m_panels.push_back(panel);
+    }
+
+    void UIManager::drawPanels()
+    {
+        for (auto& p : m_panels) p();
+    }
+
     void UIManager::endFrame()
     {
         ImGui::Render();
