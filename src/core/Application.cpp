@@ -36,6 +36,7 @@
 #include "render/Skeleton.h"
 #include "render/Animator.h"
 #include "render/Terrain.h"
+#include "scripting/LuaEngine.h"
 
 namespace engine
 {
@@ -246,6 +247,11 @@ namespace engine
         m_post->create(fbw, fbh);
         m_particles = std::make_unique<ParticleSystem>();
         m_particles->initialize(2000);
+
+        // Lua scripting
+        m_lua = std::make_unique<LuaEngine>();
+        m_lua->initialize();
+        m_lua->setHotReloadEnabled(true);
 
         // Resource manager
         m_resources = std::make_unique<ResourceManager>();
@@ -670,6 +676,24 @@ namespace engine
                     m_terrain->setLOD(m_terrainLOD);
                     m_terrain->setParams(m_terrainHeightScale, m_terrainSplatTiling, m_terrainCellWorld);
                 }
+                ImGui::Separator();
+                ImGui::Text("Scripting (Lua)");
+                ImGui::Checkbox("Hot Reload", &m_luaHotReload);
+                if (m_lua) m_lua->setHotReloadEnabled(m_luaHotReload);
+                if (ImGui::Button("Load Script (Selected Entity)"))
+                {
+                    int sel = m_scene->selectedIndex();
+                    if (sel >= 0)
+                    {
+                        auto& e = m_scene->entities()[sel];
+                        if (!e.scriptPath.empty() && m_lua)
+                        {
+                            m_lua->loadScript(e.scriptPath);
+                            m_lua->bindEntity(sel, &e);
+                            e.scriptEnabled = true;
+                        }
+                    }
+                }
                 ImGui::Text("Input Mapping");
                 auto drawRebind = [&](const char* axisName){
                     auto a = m_inputMap->axis(axisName);
@@ -908,6 +932,13 @@ namespace engine
                         ImGui::RadioButton("Y", &m_gizmoAxis, 1); ImGui::SameLine();
                         ImGui::RadioButton("Z", &m_gizmoAxis, 2);
                         ImGui::SliderFloat("Gizmo Sens", &m_gizmoSensitivity, 0.001f, 0.1f, "%.3f");
+                        ImGui::Separator();
+                        ImGui::Text("Script");
+                        static char scriptBuf[260] = "";
+                        if (!ent.scriptPath.empty()) strncpy_s(scriptBuf, ent.scriptPath.c_str(), sizeof(scriptBuf)-1);
+                        if (ImGui::InputText("Lua Path", scriptBuf, sizeof(scriptBuf))) { ent.scriptPath = scriptBuf; }
+                        ImGui::Checkbox("Enabled", &ent.scriptEnabled);
+                        if (ImGui::Button("Unload Script")) { if (m_lua && !ent.scriptPath.empty()) m_lua->unloadScript(ent.scriptPath); ent.scriptEnabled = false; }
                     }
                 }
                 ImGui::End();
@@ -1012,6 +1043,9 @@ namespace engine
                 }
                 handlePicking();
             }
+
+            // Lua update
+            if (m_lua) m_lua->onUpdate(dt);
 
             // Shadow pass (directional light with orthographic proj)
             glm::mat4 lightView = glm::lookAt(

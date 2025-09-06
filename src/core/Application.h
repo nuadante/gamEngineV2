@@ -29,6 +29,7 @@ namespace engine
     class Animator;
     struct Animation;
     class Terrain;
+    class LuaEngine;
 
     class Application
     {
@@ -92,6 +93,9 @@ namespace engine
         float m_terrainHeightScale = 20.0f;
         float m_terrainSplatTiling = 16.0f;
         float m_terrainCellWorld = 1.0f;
+        // Lua scripting
+        std::unique_ptr<LuaEngine> m_lua;
+        bool m_luaHotReload = true;
         ImVec4 m_clearColor = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
         bool m_showDemo = false;
         bool m_showAnother = false;

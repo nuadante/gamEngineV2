@@ -31,6 +31,9 @@ namespace engine
         float restitution = 0.1f;
         // box collider half-extents
         float colliderHalf[3] = {0.5f, 0.5f, 0.5f};
+        // scripting
+        std::string scriptPath; // lua file path
+        bool scriptEnabled = false;
         // runtime: not serialized (PhysX actor handle managed elsewhere)
     };
 
