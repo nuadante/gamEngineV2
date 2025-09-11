@@ -1,0 +1,262 @@
+GAM ENGINE V2 - DETAYLI PROJE ANALİZ RAPORU
+===============================================
+
+GENEL BAKIŞ
+-----------
+Bu proje, C++ ile geliştirilmiş modern bir 3D oyun motorudur. ImGui tabanlı bir editör arayüzüne sahip olan bu motor, Entity-Component-System (ECS) mimarisi kullanarak modüler ve genişletilebilir bir yapı sunar.
+
+PROJE YAPISI
+------------
+- Ana dizin: gamEngineV2/
+- Kaynak kod: src/ klasörü altında modüler yapıda organize edilmiş
+- Varlıklar: assets/ klasörü (Lua scriptleri dahil)
+- Derleme: CMake + Conan paket yöneticisi kullanılıyor
+- Platform: Windows (GLFW, OpenGL)
+
+ANA MODÜLLER
+============
+
+1. CORE SİSTEMİ (src/core/)
+---------------------------
+- Application.h/cpp: Ana uygulama sınıfı, tüm sistemleri koordine eder
+- ResourceManager.h/cpp: Kaynak yönetimi (shader, texture, mesh, material)
+- Time.h: Zaman yönetimi ve delta time hesaplama
+
+Application sınıfı özellikleri:
+- GLFW, GLAD, ImGui başlatma
+- Fizik sistemi entegrasyonu
+- Picking (nesne seçme) sistemi
+- Frustum culling (performans optimizasyonu)
+- Çoklu render pipeline (ECS ve legacy scene)
+- Gelişmiş gölge sistemi (directional, point, spot)
+- Post-processing efektleri
+- Parçacık sistemi
+- Terrain rendering
+- IBL (Image Based Lighting)
+- Lua scripting desteği
+- Ses sistemi
+- Model import (Assimp)
+
+2. ECS SİSTEMİ (src/ecs/)
+-------------------------
+- ECS.h: Entity-Component-System tanımları
+- ECSSerializer.h/cpp: JSON tabanlı sahne kaydetme/yükleme
+
+ECS Bileşenleri:
+- TagC: Entity isimlendirme
+- TransformC: Pozisyon, rotasyon, ölçek
+- MeshRendererC: Mesh ve material render bilgileri
+- DirectionalLightC: Yönlü ışık
+- PointLightC: Nokta ışık
+- SpotLightC: Spot ışık
+- ParticleEmitterC: Parçacık üretici
+- BoundsC: Sınır kutusu
+- RigidBodyC: Fizik gövde
+- BoxColliderC: Kutu çarpışma kutusu
+- PhysActorC: PhysX actor referansı
+
+3. RENDER SİSTEMİ (src/render/)
+-------------------------------
+Temel Render Sınıfları:
+- Renderer.h/cpp: Temel render işlemleri
+- Shader.h/cpp: OpenGL shader yönetimi
+- Mesh.h/cpp: 3D mesh yönetimi ve rendering
+- Camera.h/cpp: Kamera kontrolü ve matris hesaplamaları
+- Texture2D.h/cpp: 2D texture yükleme ve yönetimi
+- Material.h: PBR material sistemi
+
+Gelişmiş Render Özellikleri:
+- ShadowMap.h/cpp: Gölge haritası sistemi
+- PointShadowMap.h/cpp: Nokta ışık gölgeleri
+- CascadedShadowMap.h/cpp: Kademeli gölge haritası
+- PostProcess.h/cpp: Post-processing efektleri
+- Skybox.h/cpp: Gökyüzü renderı
+- IBL.h/cpp: Image Based Lighting
+- ParticleSystem.h/cpp: Parçacık sistemi
+- Terrain.h/cpp: Arazi renderı
+- SkinnedMesh.h/cpp: Kemik animasyonlu mesh
+- Animator.h/cpp: Animasyon kontrolü
+- AssimpLoader.h/cpp: 3D model import
+
+4. FİZİK SİSTEMİ (src/physics/)
+-------------------------------
+- Physics.h/cpp: PhysX entegrasyonu
+- Temel fizik simülasyonu
+- Rigid body ve collision detection
+- Dinamik ve statik nesneler
+
+5. INPUT SİSTEMİ (src/input/)
+-----------------------------
+- InputManager.h/cpp: Klavye, fare ve scroll input yönetimi
+- InputMap.h: Aksiyon ve eksen bağlama sistemi
+- GLFW callback'leri ile entegrasyon
+
+6. PLATFORM SİSTEMİ (src/platform/)
+-----------------------------------
+- Window.h/cpp: GLFW tabanlı pencere yönetimi
+- VSync desteği
+- Platform bağımsız pencere işlemleri
+
+7. SCENE SİSTEMİ (src/scene/)
+-----------------------------
+- Scene.h: Sahne yönetimi ve entity listesi
+- SceneSerializer.h/cpp: JSON tabanlı sahne kaydetme/yükleme
+- Transform.h: Transform bileşeni
+
+8. SCRIPTING SİSTEMİ (src/scripting/)
+------------------------------------
+- LuaEngine.h/cpp: Lua script entegrasyonu
+- Hot-reload desteği
+- Entity API binding'i
+- Dosya zaman damgası kontrolü
+
+9. AUDIO SİSTEMİ (src/audio/)
+-----------------------------
+- AudioEngine.h/cpp: OpenAL entegrasyonu
+- 2D ve 3D ses çalma
+- WAV/OGG format desteği
+- Listener pozisyon kontrolü
+
+10. UI SİSTEMİ (src/ui/)
+-----------------------
+- UIManager.h/cpp: ImGui panel yönetimi
+- Modüler panel sistemi
+- Panel görünürlük kontrolü
+
+BAĞIMLILIKLAR
+=============
+Conan paket yöneticisi ile yönetilen bağımlılıklar:
+- imgui/1.92.2b: UI framework
+- glfw/3.4: Pencere yönetimi
+- glad/0.1.36: OpenGL loader
+- glm/0.9.9.8: Matematik kütüphanesi
+- stb/cci.20230920: Image loading
+- nlohmann_json/3.12.0: JSON işleme
+- physx/4.1.2: Fizik simülasyonu
+- assimp/5.4.3: 3D model import
+- openal-soft/1.23.1: Ses sistemi
+- lua/5.4.6: Scripting
+- entt/3.15.0: ECS framework
+
+ÖZELLİKLER
+==========
+
+RENDER ÖZELLİKLERİ:
+- PBR (Physically Based Rendering) material sistemi
+- Çoklu ışık türleri (directional, point, spot)
+- Gelişmiş gölge sistemi (PCF, PCSS, CSM)
+- Post-processing efektleri (FXAA, SSAO, Bloom, TAA)
+- Parçacık sistemi
+- Terrain rendering
+- Skinned mesh animasyonu
+- IBL (Image Based Lighting)
+- Frustum culling
+- Instanced rendering
+
+FİZİK ÖZELLİKLERİ:
+- PhysX entegrasyonu
+- Rigid body simülasyonu
+- Collision detection
+- Picking sistemi
+- Dinamik nesne oluşturma
+
+UI ÖZELLİKLERİ:
+- ImGui tabanlı editör arayüzü
+- Modüler panel sistemi
+- Real-time parametre ayarlama
+- Gizmo kontrolleri
+- Hot-reload desteği
+
+SCRIPTING ÖZELLİKLERİ:
+- Lua script desteği
+- Entity API binding
+- Hot-reload
+- Dosya değişiklik takibi
+
+SES ÖZELLİKLERİ:
+- 3D pozisyonel ses
+- WAV/OGG format desteği
+- Listener kontrolü
+
+DOSYA YAPISI
+============
+
+src/
+├── core/           # Ana sistem sınıfları
+├── ecs/            # Entity-Component-System
+├── render/         # Render sistemi
+├── physics/        # Fizik sistemi
+├── input/          # Input yönetimi
+├── platform/       # Platform bağımsız kod
+├── scene/          # Sahne yönetimi
+├── scripting/      # Lua scripting
+├── audio/          # Ses sistemi
+└── ui/             # UI yönetimi
+
+assets/
+└── scripts/        # Lua script dosyaları
+
+imgui/
+└── backends/       # ImGui platform backend'leri
+
+DERLEME SİSTEMİ
+===============
+- CMake 3.15+ gereksinimi
+- Conan paket yöneticisi
+- C++17 standardı
+- Platform: Windows (OpenGL)
+
+Derleme komutları:
+- build.bat: Otomatik derleme
+- Manuel: conan install + cmake + cmake --build
+
+PERFORMANS ÖZELLİKLERİ
+=====================
+- Frustum culling (kamera görüş alanı dışındaki nesneleri render etmez)
+- Instanced rendering (aynı mesh'i birden fazla kez render etme)
+- Gölge haritası optimizasyonları
+- Parçacık sistemi optimizasyonu
+- Resource caching (ResourceManager)
+
+GELİŞTİRME ÖZELLİKLERİ
+=====================
+- Hot-reload (Lua scriptleri ve shader'lar)
+- Real-time parametre ayarlama
+- Gizmo kontrolleri (translate, rotate, scale)
+- Picking sistemi (nesne seçme)
+- JSON tabanlı sahne kaydetme/yükleme
+- Modüler UI panel sistemi
+
+KULLANIM ALANLARI
+=================
+- 3D oyun geliştirme
+- Prototip oluşturma
+- 3D görselleştirme
+- Eğitim amaçlı oyun motoru geliştirme
+- Render teknikleri araştırması
+
+GÜÇLÜ YANLAR
+============
+- Modüler ve genişletilebilir mimari
+- Modern C++ kullanımı
+- Kapsamlı render sistemi
+- ECS mimarisi
+- Hot-reload desteği
+- Cross-platform hazırlığı (şu an Windows)
+- Detaylı UI kontrolleri
+- Performans optimizasyonları
+
+GELİŞTİRİLEBİLİR ALANLAR
+=======================
+- Cross-platform desteği (Linux, macOS)
+- Daha fazla render efekti
+- Gelişmiş animasyon sistemi
+- Networking desteği
+- Daha fazla fizik özelliği
+- Asset pipeline
+- Profiling araçları
+- Memory management optimizasyonları
+
+SONUÇ
+=====
+Bu proje, modern oyun motoru geliştirme tekniklerini kullanan, kapsamlı özelliklere sahip bir 3D oyun motorudur. ECS mimarisi, PBR rendering, fizik simülasyonu ve scripting desteği ile profesyonel oyun geliştirme için gerekli temel altyapıyı sağlar. Modüler yapısı sayesinde kolayca genişletilebilir ve özelleştirilebilir.

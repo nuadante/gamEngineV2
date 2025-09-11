@@ -1789,7 +1789,7 @@ ecs_inspector_end_components: ;
             }
 
             // Render scene: ECS registry (MeshRendererC + TransformC)
-            if (m_ecsBridge)
+            if (m_renderFromECS && m_ecsBridge)
             {
                 auto& reg = m_ecsBridge->reg();
                 auto view = reg.view<TransformC, MeshRendererC>();
